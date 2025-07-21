@@ -1,0 +1,1130 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Pawn Shop Management API",
+    "version": "1.0.0",
+    "description": "API for managing pawn shop operations including loans, items, billing, and user management"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000/api",
+      "description": "Development server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "_id": {"type": "string"},
+          "name": {"type": "string"},
+          "email": {"type": "string"},
+          "role": {"type": "string", "enum": ["admin", "manager"]},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "Customer": {
+        "type": "object",
+        "properties": {
+          "_id": {"type": "string"},
+          "name": {"type": "string"},
+          "phone": {"type": "string"},
+          "address": {
+            "type": "object",
+            "properties": {
+              "doorNo": {"type": "string"},
+              "street": {"type": "string"},
+              "town": {"type": "string"},
+              "district": {"type": "string"},
+              "pincode": {"type": "string"}
+            }
+          }
+        }
+      },
+      "Item": {
+        "type": "object",
+        "properties": {
+          "_id": {"type": "string"},
+          "name": {"type": "string"},
+          "category": {"type": "string"},
+          "weight": {"type": "number"},
+          "carat": {"type": "string"},
+          "estimatedValue": {"type": "number"},
+          "description": {"type": "string"}
+        }
+      },
+      "Loan": {
+        "type": "object",
+        "properties": {
+          "_id": {"type": "string"},
+          "loanId": {"type": "string"},
+          "customerId": {"type": "string"},
+          "itemIds": {"type": "array", "items": {"type": "string"}},
+          "amount": {"type": "number"},
+          "interestPercent": {"type": "number"},
+          "loanDate": {"type": "string", "format": "date-time"},
+          "dueDate": {"type": "string", "format": "date-time"},
+          "validity": {"type": "number"},
+          "status": {"type": "string", "enum": ["active", "inactive"]},
+          "payment": {
+            "type": "object",
+            "properties": {
+              "cash": {"type": "number"},
+              "online": {"type": "number"}
+            }
+          }
+        }
+      },
+      "Repayment": {
+        "type": "object",
+        "properties": {
+          "_id": {"type": "string"},
+          "loanId": {"type": "string"},
+          "amount": {"type": "number"},
+          "interestAmount": {"type": "number"},
+          "totalAmount": {"type": "number"},
+          "paymentDate": {"type": "string", "format": "date-time"},
+          "paymentMethod": {
+            "type": "object",
+            "properties": {
+              "cash": {"type": "number"},
+              "online": {"type": "number"}
+            }
+          }
+        }
+      },
+      "BillingRecord": {
+        "type": "object",
+        "properties": {
+          "_id": {"type": "string"},
+          "customerName": {"type": "string"},
+          "phone": {"type": "string"},
+          "address": {"type": "object"},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/Item"}},
+          "loanAmount": {"type": "number"},
+          "interestRate": {"type": "number"},
+          "validity": {"type": "number"},
+          "dueDate": {"type": "string", "format": "date-time"},
+          "payment": {
+            "type": "object",
+            "properties": {
+              "cash": {"type": "number"},
+              "online": {"type": "number"}
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"}
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check endpoint",
+        "responses": {
+          "200": {
+            "description": "Server is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {"type": "string"},
+                    "timestamp": {"type": "string", "format": "date-time"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Register a new admin",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "email", "password"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "email": {"type": "string", "format": "email"},
+                  "password": {"type": "string", "minLength": 6}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Admin registered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {"type": "string"},
+                    "user": {"$ref": "#/components/schemas/User"}
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "User already exists",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Login user",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": {"type": "string", "format": "email"},
+                  "password": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {"type": "string"},
+                    "user": {"$ref": "#/components/schemas/User"}
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/forgot-password": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Request password reset OTP",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": {"type": "string", "format": "email"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP sent successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {"type": "string"}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/verify-otp": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Verify OTP",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "otp"],
+                "properties": {
+                  "email": {"type": "string", "format": "email"},
+                  "otp": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OTP verified successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {"type": "string"}
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or expired OTP",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/reset-password": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Reset password",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "otp", "newPassword"],
+                "properties": {
+                  "email": {"type": "string", "format": "email"},
+                  "otp": {"type": "string"},
+                  "newPassword": {"type": "string", "minLength": 6}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {"type": "string"}
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or expired OTP",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/add-manager": {
+      "post": {
+        "tags": ["Admin"],
+        "summary": "Add a new manager",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "email", "password"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "email": {"type": "string", "format": "email"},
+                  "password": {"type": "string", "minLength": 6}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Manager added successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "manager": {"$ref": "#/components/schemas/User"}
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Manager already exists",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/managers": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Get all managers",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "List of managers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/User"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/profile": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Get admin profile",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Admin profile",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/User"}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Admin"],
+        "summary": "Update admin profile",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {"type": "string"},
+                  "email": {"type": "string", "format": "email"},
+                  "password": {"type": "string", "minLength": 6}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Profile updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/loans/active": {
+      "get": {
+        "tags": ["Loans"],
+        "summary": "Get all active loans",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "List of active loans with interest calculations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "allOf": [
+                      {"$ref": "#/components/schemas/Loan"},
+                      {
+                        "type": "object",
+                        "properties": {
+                          "currentInterest": {"type": "number"},
+                          "daysPassed": {"type": "number"},
+                          "totalDue": {"type": "number"}
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/loans/inactive": {
+      "get": {
+        "tags": ["Loans"],
+        "summary": "Get all inactive loans",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "List of inactive loans with repayment details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/Loan"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/loans/search/{phone}": {
+      "get": {
+        "tags": ["Loans"],
+        "summary": "Search loans by phone number",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "phone",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of loans for the phone number",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/Loan"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/loans/statistics": {
+      "get": {
+        "tags": ["Loans"],
+        "summary": "Get loan statistics",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Loan statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalLoans": {"type": "number"},
+                    "activeLoans": {"type": "number"},
+                    "inactiveLoans": {"type": "number"},
+                    "totalAmount": {"type": "number"},
+                    "activeAmount": {"type": "number"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/loans/{id}": {
+      "get": {
+        "tags": ["Loans"],
+        "summary": "Get loan by ID or loanId",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loan details",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Loan"}
+              }
+            }
+          },
+          "404": {
+            "description": "Loan not found",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/billing/create": {
+      "post": {
+        "tags": ["Billing"],
+        "summary": "Create a new billing record",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/BillingRecord"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Billing record created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {"type": "string"},
+                    "loanId": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/billing/stats": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Get billing statistics",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Billing statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalBillings": {"type": "number"},
+                    "totalAmount": {"type": "number"},
+                    "averageAmount": {"type": "number"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/repayment/pay": {
+      "post": {
+        "tags": ["Repayment"],
+        "summary": "Repay a loan",
+        "security": [{"bearerAuth": []}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["loanId", "amount"],
+                "properties": {
+                  "loanId": {"type": "string"},
+                  "amount": {"type": "number"},
+                  "paymentMethod": {
+                    "type": "object",
+                    "properties": {
+                      "cash": {"type": "number"},
+                      "online": {"type": "number"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Repayment successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {"type": "string"},
+                    "repayment": {"$ref": "#/components/schemas/Repayment"}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Loan not found",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/repayment/search/{identifier}": {
+      "get": {
+        "tags": ["Repayment"],
+        "summary": "Search loan for repayment by loanId or phone",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loan details for repayment",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Loan"}
+              }
+            }
+          },
+          "404": {
+            "description": "Loan not found",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invoice/loan/{loanId}": {
+      "get": {
+        "tags": ["Invoice"],
+        "summary": "Get loan invoice",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loan invoice data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "loanId": {"type": "string"},
+                    "customerName": {"type": "string"},
+                    "phone": {"type": "string"},
+                    "address": {"type": "object"},
+                    "loanAmount": {"type": "number"},
+                    "interestRate": {"type": "number"},
+                    "validity": {"type": "number"},
+                    "dueDate": {"type": "string"},
+                    "payment": {"type": "object"},
+                    "items": {"type": "array", "items": {"$ref": "#/components/schemas/Item"}}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invoice/loan/{loanId}/pdf": {
+      "get": {
+        "tags": ["Invoice"],
+        "summary": "Generate loan invoice PDF",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF file",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invoice/repayment/{loanId}": {
+      "get": {
+        "tags": ["Invoice"],
+        "summary": "Get repayment invoice",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repayment invoice data",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Repayment"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/items": {
+      "get": {
+        "tags": ["Items"],
+        "summary": "Get all items",
+        "responses": {
+          "200": {
+            "description": "List of items",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/Item"}
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Items"],
+        "summary": "Add a new item",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/Item"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Item added successfully",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Item"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/items/{id}": {
+      "put": {
+        "tags": ["Items"],
+        "summary": "Update an item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/Item"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Item updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Item"}
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Items"],
+        "summary": "Delete an item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Item deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transactions": {
+      "get": {
+        "tags": ["Transactions"],
+        "summary": "Get all transactions with filters",
+        "security": [{"bearerAuth": []}],
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {"type": "string", "enum": ["loan", "repayment"]}
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": {"type": "string", "format": "date"}
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": {"type": "string", "format": "date"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of transactions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "_id": {"type": "string"},
+                      "type": {"type": "string"},
+                      "amount": {"type": "number"},
+                      "date": {"type": "string", "format": "date-time"},
+                      "customerId": {"type": "string"},
+                      "loanId": {"type": "string"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transactions/summary": {
+      "get": {
+        "tags": ["Transactions"],
+        "summary": "Get transaction summary",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Transaction summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalTransactions": {"type": "number"},
+                    "totalAmount": {"type": "number"},
+                    "loanAmount": {"type": "number"},
+                    "repaymentAmount": {"type": "number"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transactions/statistics": {
+      "get": {
+        "tags": ["Transactions"],
+        "summary": "Get overall statistics",
+        "security": [{"bearerAuth": []}],
+        "responses": {
+          "200": {
+            "description": "Overall statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalLoans": {"type": "number"},
+                    "totalRepayments": {"type": "number"},
+                    "activeLoans": {"type": "number"},
+                    "totalInterest": {"type": "number"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports": {
+      "get": {
+        "tags": ["Reports"],
+        "summary": "Get reports",
+        "responses": {
+          "200": {
+            "description": "Report data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {"type": "array", "items": {"type": "object"}}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Health check endpoints"
+    },
+    {
+      "name": "Authentication",
+      "description": "User authentication endpoints"
+    },
+    {
+      "name": "Admin",
+      "description": "Admin management endpoints"
+    },
+    {
+      "name": "Loans",
+      "description": "Loan management endpoints"
+    },
+    {
+      "name": "Billing",
+      "description": "Billing management endpoints"
+    },
+    {
+      "name": "Repayment",
+      "description": "Repayment processing endpoints"
+    },
+    {
+      "name": "Invoice",
+      "description": "Invoice generation endpoints"
+    },
+    {
+      "name": "Items",
+      "description": "Item management endpoints"
+    },
+    {
+      "name": "Transactions",
+      "description": "Transaction tracking endpoints"
+    },
+    {
+      "name": "Reports",
+      "description": "Report generation endpoints"
+    }
+  ]
+}
