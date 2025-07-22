@@ -190,6 +190,13 @@ exports.getLoanStatistics = async (req, res) => {
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
     
+    // Get current month's date range
+    const currentMonth = new Date()
+    currentMonth.setDate(1)
+    currentMonth.setHours(0, 0, 0, 0)
+    const nextMonth = new Date(currentMonth)
+    nextMonth.setMonth(nextMonth.getMonth() + 1)
+    
     const totalLoans = await Loan.countDocuments()
     const activeLoans = await Loan.countDocuments({ status: 'active' })
     const inactiveLoans = await Loan.countDocuments({ status: 'inactive' })
@@ -200,15 +207,28 @@ exports.getLoanStatistics = async (req, res) => {
     })
     const todayLoanAmount = todayLoansGiven.reduce((sum, loan) => sum + loan.amount, 0)
     
-    // Get today's repayments
+    // Get today's repayments - Fixed field name from dateRepaid to repaymentDate
     const Repayment = require('../models/Repayment')
     const todayRepayments = await Repayment.find({
-      dateRepaid: { $gte: today, $lt: tomorrow }
+      repaymentDate: { $gte: today, $lt: tomorrow }
     })
     const todayRepaymentAmount = todayRepayments.reduce((sum, repayment) => sum + repayment.totalAmount, 0)
     
-    // Calculate today's profit (repayment - given)
-    const todayProfit = todayRepaymentAmount - todayLoanAmount
+    // Calculate today's profit - This should be the interest earned from repayments
+    const todayInterestEarned = todayRepayments.reduce((sum, repayment) => sum + repayment.interestAmount, 0)
+    
+    // Get this month's repayments for monthly profit
+    const monthlyRepayments = await Repayment.find({
+      repaymentDate: { $gte: currentMonth, $lt: nextMonth }
+    })
+    const monthlyInterestEarned = monthlyRepayments.reduce((sum, repayment) => sum + repayment.interestAmount, 0)
+    const monthlyRepaymentAmount = monthlyRepayments.reduce((sum, repayment) => sum + repayment.totalAmount, 0)
+    
+    // Get this month's loans given
+    const monthlyLoansGiven = await Loan.find({
+      createdAt: { $gte: currentMonth, $lt: nextMonth }
+    })
+    const monthlyLoanAmount = monthlyLoansGiven.reduce((sum, loan) => sum + loan.amount, 0)
     
     // Get total loan amounts
     const activeLoanAmounts = await Loan.aggregate([
@@ -252,7 +272,10 @@ exports.getLoanStatistics = async (req, res) => {
       totalCurrentInterest,
       todayLoanAmount,
       todayRepaymentAmount,
-      todayProfit,
+      todayProfit: todayInterestEarned, // Changed to interest earned instead of repayment - given
+      monthlyLoanAmount,
+      monthlyRepaymentAmount,
+      monthlyProfit: monthlyInterestEarned,
       paymentBreakdown
     })
   } catch (error) {

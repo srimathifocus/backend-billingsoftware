@@ -1,0 +1,278 @@
+const PDFDocument = require('pdfkit')
+const fs = require('fs')
+const path = require('path')
+const ShopDetails = require('../models/ShopDetails')
+
+// Professional color scheme
+const colors = {
+  primary: '#1a365d',      // Dark blue
+  secondary: '#2d3748',    // Dark gray
+  accent: '#3182ce',       // Blue
+  text: '#2d3748',         // Dark gray
+  lightGray: '#f7fafc',    // Very light gray
+  border: '#e2e8f0'        // Light gray
+}
+
+const generateAuditReportPDF = async (auditData, filePath) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ 
+        margin: 50,
+        size: 'A4',
+        info: {
+          Title: auditData.title,
+          Author: auditData.preparedBy,
+          Subject: 'Audit Report',
+          Keywords: 'audit, financial, report'
+        }
+      })
+
+      const stream = fs.createWriteStream(filePath)
+      doc.pipe(stream)
+
+      // Get shop details
+      const shopDetails = await ShopDetails.findOne({ isActive: true })
+      
+      // Page dimensions
+      const pageWidth = doc.page.width
+      const pageHeight = doc.page.height
+      const margin = doc.page.margins.left
+      const contentWidth = pageWidth - (margin * 2)
+      
+      let currentY = margin
+
+      // Helper functions
+      const addTitle = (text, fontSize = 18, color = colors.primary) => {
+        doc.fillColor(color)
+           .fontSize(fontSize)
+           .font('Helvetica-Bold')
+           .text(text, margin, currentY, { align: 'center', width: contentWidth })
+        currentY += fontSize + 10
+      }
+
+      const addSectionHeader = (text, fontSize = 14) => {
+        if (currentY > pageHeight - 100) {
+          doc.addPage()
+          currentY = margin
+        }
+        
+        doc.fillColor(colors.primary)
+           .fontSize(fontSize)
+           .font('Helvetica-Bold')
+           .text(text, margin, currentY)
+        
+        // Add underline
+        doc.moveTo(margin, currentY + fontSize + 2)
+           .lineTo(pageWidth - margin, currentY + fontSize + 2)
+           .strokeColor(colors.border)
+           .stroke()
+        
+        currentY += fontSize + 15
+      }
+
+      const addText = (text, fontSize = 10, options = {}) => {
+        const font = options.bold ? 'Helvetica-Bold' : 'Helvetica'
+        const color = options.color || colors.text
+        const indent = options.indent || 0
+        
+        doc.fillColor(color)
+           .fontSize(fontSize)
+           .font(font)
+           .text(text, margin + indent, currentY, { 
+             width: contentWidth - indent,
+             align: options.align || 'left'
+           })
+        
+        currentY += fontSize + 5
+      }
+
+      const addTable = (headers, rows, options = {}) => {
+        const startY = currentY
+        const tableWidth = contentWidth
+        const colWidth = tableWidth / headers.length
+        const rowHeight = 25
+        
+        // Check if table fits on current page
+        if (currentY + (rows.length + 2) * rowHeight > pageHeight - margin) {
+          doc.addPage()
+          currentY = margin
+        }
+        
+        // Draw table header
+        doc.rect(margin, currentY, tableWidth, rowHeight)
+           .fillAndStroke(colors.lightGray, colors.border)
+        
+        doc.fillColor(colors.text)
+           .fontSize(10)
+           .font('Helvetica-Bold')
+        
+        headers.forEach((header, i) => {
+          const x = margin + (i * colWidth) + 5
+          doc.text(header, x, currentY + 7, { 
+            width: colWidth - 10, 
+            align: 'center' 
+          })
+        })
+        
+        currentY += rowHeight
+        
+        // Draw table rows
+        doc.font('Helvetica')
+        rows.forEach((row, rowIndex) => {
+          // Alternate row colors
+          const fillColor = rowIndex % 2 === 0 ? '#ffffff' : colors.lightGray
+          
+          doc.rect(margin, currentY, tableWidth, rowHeight)
+             .fillAndStroke(fillColor, colors.border)
+          
+          row.forEach((cell, colIndex) => {
+            const x = margin + (colIndex * colWidth) + 5
+            const isNumber = !isNaN(parseFloat(cell.toString().replace(/[₹,\s]/g, '')))
+            const align = (colIndex > 0 && isNumber) ? 'right' : 'left'
+            
+            doc.fillColor(colors.text)
+               .text(cell.toString(), x, currentY + 7, { 
+                 width: colWidth - 10, 
+                 align: align 
+               })
+          })
+          
+          currentY += rowHeight
+        })
+        
+        currentY += 10
+      }
+
+      // Document Header
+      addTitle(auditData.title, 20)
+      
+      // Header information
+      const headerInfo = [
+        `Audit Period: ${auditData.auditPeriod}`,
+        `Location: ${auditData.location}`,
+        `License No: ${auditData.licenseNo}`,
+        `Prepared by: ${auditData.preparedBy}`,
+        `Generated on: ${new Date(auditData.generatedOn).toLocaleDateString()}`,
+        `Generated by: ${auditData.generatedBy}`
+      ]
+      
+      headerInfo.forEach(info => {
+        addText(info, 10, { align: 'center' })
+      })
+      
+      currentY += 20
+
+      // 1. Executive Summary
+      addSectionHeader('1. EXECUTIVE SUMMARY')
+      
+      const summaryData = [
+        ['Total Loans', auditData.executiveSummary.totalLoans.toString()],
+        ['Active Loans', auditData.executiveSummary.activeLoans.toString()],
+        ['Settled Loans', auditData.executiveSummary.settledLoans.toString()],
+        ['Forfeited Loans', auditData.executiveSummary.forfeitedLoans.toString()],
+        ['Total Loan Value', `₹ ${auditData.executiveSummary.totalLoanValue.toLocaleString()}`],
+        ['Total Customers', auditData.executiveSummary.totalCustomers.toString()]
+      ]
+      
+      addTable(['Metric', 'Value'], summaryData)
+
+      // 2. Financial Statements
+      addSectionHeader('2. FINANCIAL STATEMENTS')
+      
+      // Balance Sheet - Assets
+      addText('Balance Sheet - Assets', 12, { bold: true })
+      currentY += 5
+      
+      const assetsData = [
+        ['Cash in Hand/Bank', `₹ ${auditData.balanceSheet.assets.cashInHand.toLocaleString()}`],
+        ['Loan Receivables', `₹ ${auditData.balanceSheet.assets.loanReceivables.toLocaleString()}`],
+        ['Forfeited Inventory', `₹ ${auditData.balanceSheet.assets.forfeitedInventory.toLocaleString()}`],
+        ['Furniture & Fixtures', `₹ ${auditData.balanceSheet.assets.furnitureFixtures.toLocaleString()}`],
+        ['TOTAL ASSETS', `₹ ${auditData.balanceSheet.assets.totalAssets.toLocaleString()}`]
+      ]
+      
+      addTable(['Asset Type', 'Amount'], assetsData)
+      
+      // Profit & Loss
+      addText('Profit & Loss Account', 12, { bold: true })
+      currentY += 5
+      
+      const plData = [
+        ['REVENUE', ''],
+        ['Interest Income', `₹ ${auditData.profitLoss.revenue.interestIncome.toLocaleString()}`],
+        ['Sale of Forfeited Items', `₹ ${auditData.profitLoss.revenue.saleOfForfeitedItems.toLocaleString()}`],
+        ['Total Revenue', `₹ ${auditData.profitLoss.revenue.totalRevenue.toLocaleString()}`],
+        ['', ''],
+        ['EXPENSES', ''],
+        ['Salaries', `₹ ${auditData.profitLoss.expenses.salaries.toLocaleString()}`],
+        ['Rent', `₹ ${auditData.profitLoss.expenses.rent.toLocaleString()}`],
+        ['Utilities', `₹ ${auditData.profitLoss.expenses.utilities.toLocaleString()}`],
+        ['Miscellaneous', `₹ ${auditData.profitLoss.expenses.miscellaneous.toLocaleString()}`],
+        ['Total Expenses', `₹ ${auditData.profitLoss.expenses.totalExpenses.toLocaleString()}`],
+        ['', ''],
+        ['NET PROFIT', `₹ ${auditData.profitLoss.netProfit.toLocaleString()}`]
+      ]
+      
+      addTable(['Particulars', 'Amount'], plData)
+
+      // 3. Loan Register Summary
+      addSectionHeader('3. PAWN LOAN REGISTER SUMMARY')
+      
+      const loanRegisterData = [
+        ['Gold Jewelry', 
+         auditData.loanRegister.goldJewelry.count.toString(), 
+         `₹ ${auditData.loanRegister.goldJewelry.totalValue.toLocaleString()}`, 
+         `${auditData.loanRegister.goldJewelry.avgInterestRate}%`],
+        ['Electronics', 
+         auditData.loanRegister.electronics.count.toString(), 
+         `₹ ${auditData.loanRegister.electronics.totalValue.toLocaleString()}`, 
+         `${auditData.loanRegister.electronics.avgInterestRate}%`],
+        ['Others', 
+         auditData.loanRegister.others.count.toString(), 
+         `₹ ${auditData.loanRegister.others.totalValue.toLocaleString()}`, 
+         `${auditData.loanRegister.others.avgInterestRate}%`]
+      ]
+      
+      addTable(['Category', 'Count', 'Total Value', 'Avg Interest'], loanRegisterData)
+
+      // 4. Auditor Observations
+      addSectionHeader('4. AUDITOR OBSERVATIONS')
+      
+      auditData.observations.forEach(observation => {
+        addText(`• ${observation}`, 10, { indent: 10 })
+      })
+      
+      currentY += 10
+
+      // 5. Conclusion
+      addSectionHeader('5. CONCLUSION')
+      addText(auditData.conclusion, 10)
+
+      // Footer
+      doc.fontSize(8)
+         .fillColor(colors.secondary)
+         .font('Helvetica-Oblique')
+         .text(
+           `Report generated on ${new Date().toLocaleDateString()} by ${auditData.generatedBy}`,
+           margin,
+           pageHeight - 30,
+           { align: 'center', width: contentWidth }
+         )
+
+      doc.end()
+
+      stream.on('finish', () => {
+        resolve(filePath)
+      })
+
+      stream.on('error', (error) => {
+        reject(error)
+      })
+
+    } catch (error) {
+      reject(error)
+    }
+  })
+}
+
+module.exports = { generateAuditReportPDF }

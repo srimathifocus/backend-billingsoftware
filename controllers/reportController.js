@@ -420,14 +420,7 @@ exports.generateAuditReport = async (req, res) => {
         waivedInterest: Math.round(aggregatedBalanceSheet.interestIncome * 0.02) // Assuming 2% waived
       },
       
-      // Compliance & KYC
-      compliance: {
-        kycCollection: '100%',
-        panCardsCollected: allLoans.filter(loan => loan.amount > 50000).length,
-        cctvSurveillance: 'Operational',
-        insurance: 'Rs. 30 lakh, via New India Assurance',
-        fireAndSecurity: 'Verified'
-      },
+
       
       // Auditor Observations
       observations: [
@@ -435,7 +428,7 @@ exports.generateAuditReport = async (req, res) => {
         'Physical inventory matched ledger entries during audit',
         'GST & IT returns filed on time',
         'No cases of regulatory violations found',
-        'KYC documentation complete for all customers'
+       
       ],
       
       // Conclusion
@@ -516,6 +509,236 @@ exports.getReportDashboard = async (req, res) => {
     
   } catch (error) {
     console.error('Dashboard data error:', error)
+    res.status(500).json({ message: error.message })
+  }
+}
+
+// Download Audit Report as PDF
+exports.downloadAuditReport = async (req, res) => {
+  try {
+    const { generateAuditReportPDF } = require('../utils/auditReportGenerator')
+    const path = require('path')
+    const fs = require('fs')
+    
+    const { financialYear } = req.query
+    
+    // Default to current financial year (April to March)
+    const currentDate = new Date()
+    const currentYear = currentDate.getFullYear()
+    const currentMonth = currentDate.getMonth() + 1 // JavaScript months are 0-based
+    
+    // Determine financial year - if current month is Jan-Mar, we're in the second year of FY
+    const fyYear = financialYear ? 
+      parseInt(financialYear) : 
+      (currentMonth >= 4 ? currentYear : currentYear - 1)
+    
+    const fyStart = moment(`${fyYear}-04-01`).startOf('day').toDate()
+    const fyEnd = moment(`${fyYear + 1}-03-31`).endOf('day').toDate()
+    
+    const dateFilter = {
+      createdAt: { $gte: fyStart, $lte: fyEnd }
+    }
+    
+    // Fetch shop details from database
+    const shopDetails = await ShopDetails.findOne({ isActive: true })
+    if (!shopDetails) {
+      return res.status(404).json({ message: 'Shop details not found. Please configure shop details first.' })
+    }
+    
+    // Get all data for the financial year (same logic as generateAuditReport)
+    const allLoans = await Loan.find(dateFilter)
+      .populate('customerId', 'name phone email')
+      .populate('itemIds', 'name category weight')
+    
+    const allCustomers = await Customer.find(dateFilter)
+    
+    // Fetch balance sheet data for the financial year
+    const balanceSheetData = await BalanceSheet.find({
+      year: { $in: [fyYear, fyYear + 1] },
+      $or: [
+        { year: fyYear, month: { $gte: 4 } },
+        { year: fyYear + 1, month: { $lte: 3 } }
+      ]
+    })
+    
+    // Fetch expense data for the financial year
+    const expenseData = await Expense.find({
+      year: { $in: [fyYear, fyYear + 1] },
+      $or: [
+        { year: fyYear, month: { $gte: 4 } },
+        { year: fyYear + 1, month: { $lte: 3 } }
+      ]
+    })
+    
+    // Calculate financial data (same logic as generateAuditReport)
+    const activeLoans = allLoans.filter(loan => loan.status === 'active')
+    const settledLoans = allLoans.filter(loan => loan.status === 'settled')
+    const forfeitedLoans = allLoans.filter(loan => loan.status === 'forfeited')
+    
+    const totalLoanValue = allLoans.reduce((sum, loan) => sum + loan.amount, 0)
+    
+    // Aggregate balance sheet data
+    const aggregatedBalanceSheet = balanceSheetData.reduce((acc, bs) => {
+      acc.cashInHandBank += bs.cashInHandBank || 0
+      acc.loanReceivables += bs.loanReceivables || 0
+      acc.forfeitedInventory += bs.forfeitedInventory || 0
+      acc.furnitureFixtures += bs.furnitureFixtures || 0
+      acc.customerPayables += bs.customerPayables || 0
+      acc.bankOverdraft += bs.bankOverdraft || 0
+      acc.ownersEquity += bs.ownersEquity || 0
+      acc.interestIncome += bs.interestIncome || 0
+      acc.saleOfForfeitedItems += bs.saleOfForfeitedItems || 0
+      return acc
+    }, {
+      cashInHandBank: 0,
+      loanReceivables: 0,
+      forfeitedInventory: 0,
+      furnitureFixtures: 0,
+      customerPayables: 0,
+      bankOverdraft: 0,
+      ownersEquity: 0,
+      interestIncome: 0,
+      saleOfForfeitedItems: 0
+    })
+    
+    // Aggregate expense data
+    const aggregatedExpenses = expenseData.reduce((acc, exp) => {
+      acc.salaries += exp.salaries || 0
+      acc.rent += exp.rent || 0
+      acc.utilities += exp.utilities || 0
+      acc.miscellaneous += exp.miscellaneous || 0
+      return acc
+    }, {
+      salaries: 0,
+      rent: 0,
+      utilities: 0,
+      miscellaneous: 0
+    })
+    
+    // Calculate totals
+    const totalAssets = aggregatedBalanceSheet.cashInHandBank + aggregatedBalanceSheet.loanReceivables + 
+                       aggregatedBalanceSheet.forfeitedInventory + aggregatedBalanceSheet.furnitureFixtures
+    const totalExpenses = aggregatedExpenses.salaries + aggregatedExpenses.rent + 
+                          aggregatedExpenses.utilities + aggregatedExpenses.miscellaneous
+    const totalRevenue = aggregatedBalanceSheet.interestIncome + aggregatedBalanceSheet.saleOfForfeitedItems
+    const netProfit = totalRevenue - totalExpenses
+    
+    // Calculate inventory data
+    const goldInventory = allLoans.filter(loan => 
+      loan.itemIds.some(item => item.category === 'gold')
+    )
+    
+    // Generate audit report data
+    const auditReport = {
+      title: `${shopDetails.shopName.toUpperCase()} – AUDIT REPORT`,
+      auditPeriod: `${moment(fyStart).format('MMMM D, YYYY')} – ${moment(fyEnd).format('MMMM D, YYYY')}`,
+      location: shopDetails.location,
+      licenseNo: shopDetails.licenseNumber,
+      preparedBy: shopDetails.auditorName || 'R. Aravind & Co., Chartered Accountants',
+      generatedOn: new Date(),
+      generatedBy: req.user ? req.user.name : 'System Admin',
+      
+      executiveSummary: {
+        totalLoans: allLoans.length,
+        totalLoanValue,
+        activeLoans: activeLoans.length,
+        settledLoans: settledLoans.length,
+        forfeitedLoans: forfeitedLoans.length,
+        totalCustomers: allCustomers.length
+      },
+      
+      balanceSheet: {
+        assets: {
+          cashInHand: aggregatedBalanceSheet.cashInHandBank,
+          loanReceivables: aggregatedBalanceSheet.loanReceivables,
+          forfeitedInventory: aggregatedBalanceSheet.forfeitedInventory,
+          furnitureFixtures: aggregatedBalanceSheet.furnitureFixtures,
+          totalAssets: totalAssets
+        }
+      },
+      
+      profitLoss: {
+        revenue: {
+          interestIncome: aggregatedBalanceSheet.interestIncome,
+          saleOfForfeitedItems: aggregatedBalanceSheet.saleOfForfeitedItems,
+          totalRevenue: totalRevenue
+        },
+        expenses: {
+          salaries: aggregatedExpenses.salaries,
+          rent: aggregatedExpenses.rent,
+          utilities: aggregatedExpenses.utilities,
+          miscellaneous: aggregatedExpenses.miscellaneous,
+          totalExpenses: totalExpenses
+        },
+        netProfit: netProfit
+      },
+      
+      loanRegister: {
+        goldJewelry: {
+          count: goldInventory.length,
+          totalValue: goldInventory.reduce((sum, loan) => sum + loan.amount, 0),
+          avgInterestRate: 24
+        },
+        electronics: {
+          count: allLoans.filter(loan => 
+            loan.itemIds.some(item => item.category === 'electronics')
+          ).length,
+          totalValue: allLoans.filter(loan => 
+            loan.itemIds.some(item => item.category === 'electronics')
+          ).reduce((sum, loan) => sum + loan.amount, 0),
+          avgInterestRate: 30
+        },
+        others: {
+          count: allLoans.filter(loan => 
+            !loan.itemIds.some(item => ['gold', 'electronics'].includes(item.category))
+          ).length,
+          totalValue: allLoans.filter(loan => 
+            !loan.itemIds.some(item => ['gold', 'electronics'].includes(item.category))
+          ).reduce((sum, loan) => sum + loan.amount, 0),
+          avgInterestRate: 30
+        }
+      },
+      
+      observations: [
+        'All books maintained with regular entries',
+        'Physical inventory matched ledger entries during audit',
+        'GST & IT returns filed on time',
+        'No cases of regulatory violations found'
+      ],
+      
+      conclusion: `${shopDetails.shopName} has maintained financial and operational compliance for the financial year. Proper documentation, record-keeping, and procedures are in place.`
+    }
+    
+    // Generate PDF
+    const fileName = `audit_report_${fyYear}_${fyYear + 1}.pdf`
+    const uploadsDir = path.join(__dirname, '../uploads')
+    
+    // Create uploads directory if it doesn't exist
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true })
+    }
+    
+    const filePath = path.join(uploadsDir, fileName)
+    
+    await generateAuditReportPDF(auditReport, filePath)
+    
+    // Send file for download
+    res.download(filePath, fileName, (err) => {
+      if (err) {
+        console.error('Error downloading file:', err)
+        res.status(500).json({ message: 'Error downloading audit report' })
+      } else {
+        // Clean up file after download
+        setTimeout(() => {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath)
+          }
+        }, 5000)
+      }
+    })
+    
+  } catch (error) {
+    console.error('Audit report download error:', error)
     res.status(500).json({ message: error.message })
   }
 }
