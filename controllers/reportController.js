@@ -1,4 +1,5 @@
 const Loan = require('../models/Loan')
+const Repayment = require('../models/Repayment')
 const Customer = require('../models/Customer')
 const User = require('../models/User')
 const ShopDetails = require('../models/ShopDetails')
@@ -94,39 +95,46 @@ exports.generateTransactionReport = async (req, res) => {
         return res.status(400).json({ message: 'Invalid report type' })
     }
     
-    // Get all loans with transactions in the date range
-    const loans = await Loan.find(dateFilter)
+    // Get all loans issued in the date range
+    const loans = await Loan.find({
+      ...dateFilter,
+      status: { $in: ['active', 'repaid'] }
+    })
       .populate('customerId', 'name phone email')
       .populate('itemIds', 'name category')
       .sort({ createdAt: -1 })
     
-    // Get repayment transactions
-    const repaymentTransactions = await Loan.find({
-      'payment.date': {
+    // Get repayment transactions made in the date range
+    const repaymentDateFilter = {
+      repaymentDate: {
         $gte: dateFilter.createdAt.$gte,
         $lte: dateFilter.createdAt.$lte
-      },
-      $or: [
-        { 'payment.cash': { $gt: 0 } },
-        { 'payment.online': { $gt: 0 } }
-      ]
-    }).populate('customerId', 'name phone')
+      }
+    }
+    
+    const repaymentTransactions = await Repayment.find(repaymentDateFilter)
+      .populate({
+        path: 'loanId',
+        populate: {
+          path: 'customerId',
+          select: 'name phone'
+        }
+      })
+      .sort({ repaymentDate: -1 })
     
     // Calculate summary statistics
     const totalLoansIssued = loans.length
     const totalLoanAmount = loans.reduce((sum, loan) => sum + loan.amount, 0)
+    
+    // Count and calculate repayments
     const totalRepayments = repaymentTransactions.length
-    const totalRepaymentAmount = repaymentTransactions.reduce((sum, loan) => {
-      return sum + (loan.payment.cash || 0) + (loan.payment.online || 0)
+    const totalRepaymentAmount = repaymentTransactions.reduce((sum, repayment) => {
+      return sum + repayment.totalAmount
     }, 0)
     
-    const totalInterestEarned = loans.reduce((sum, loan) => {
-      const daysPassed = Math.floor((new Date() - new Date(loan.loanDate)) / (1000 * 60 * 60 * 24))
-      const monthsPassed = daysPassed / 30
-      const interest = loan.interestType === 'monthly' 
-        ? (loan.amount * loan.interestPercent * monthsPassed) / 100
-        : (loan.amount * loan.interestPercent * daysPassed) / 100
-      return sum + Math.max(0, interest)
+    // Calculate interest earned from repayments
+    const totalInterestEarned = repaymentTransactions.reduce((sum, repayment) => {
+      return sum + repayment.interestAmount
     }, 0)
     
     const reportData = {
@@ -143,7 +151,7 @@ exports.generateTransactionReport = async (req, res) => {
         totalRepayments,
         totalRepaymentAmount,
         totalInterestEarned: Math.round(totalInterestEarned),
-        netRevenue: Math.round(totalInterestEarned + totalRepaymentAmount - totalLoanAmount)
+        netRevenue: Math.round(totalInterestEarned)
       },
       loans,
       repaymentTransactions
@@ -215,26 +223,34 @@ exports.generateAuditReport = async (req, res) => {
     
     // Calculate financial data
     const activeLoans = allLoans.filter(loan => loan.status === 'active')
-    const settledLoans = allLoans.filter(loan => loan.status === 'settled')
+    const repaidLoans = allLoans.filter(loan => loan.status === 'repaid')
     const forfeitedLoans = allLoans.filter(loan => loan.status === 'forfeited')
     
     const totalLoanValue = allLoans.reduce((sum, loan) => sum + loan.amount, 0)
     const activeLoanValue = activeLoans.reduce((sum, loan) => sum + loan.amount, 0)
-    const settledLoanValue = settledLoans.reduce((sum, loan) => sum + loan.amount, 0)
+    const repaidLoanValue = repaidLoans.reduce((sum, loan) => sum + loan.amount, 0)
     const forfeitedLoanValue = forfeitedLoans.reduce((sum, loan) => sum + loan.amount, 0)
     
-    // Calculate interest income
-    const interestIncome = allLoans.reduce((sum, loan) => {
-      const daysPassed = Math.floor((new Date() - new Date(loan.loanDate)) / (1000 * 60 * 60 * 24))
-      const monthsPassed = daysPassed / 30
-      const interest = loan.interestType === 'monthly' 
-        ? (loan.amount * loan.interestPercent * monthsPassed) / 100
-        : (loan.amount * loan.interestPercent * daysPassed) / 100
-      return sum + Math.max(0, interest)
+    // Calculate interest income (only from active and repaid loans)
+    const interestIncome = allLoans.filter(loan => ['active', 'repaid'].includes(loan.status)).reduce((sum, loan) => {
+      if (loan.status === 'repaid' && loan.payment) {
+        const totalPaid = (loan.payment.cash || 0) + (loan.payment.online || 0)
+        const interestEarned = Math.max(0, totalPaid - loan.amount)
+        return sum + interestEarned
+      } else if (loan.status === 'active') {
+        const loanDate = new Date(loan.loanDate || loan.createdAt)
+        const daysPassed = Math.floor((new Date() - loanDate) / (1000 * 60 * 60 * 24))
+        const monthsPassed = daysPassed / 30
+        const interest = loan.interestType === 'monthly' 
+          ? (loan.amount * loan.interestPercent * monthsPassed) / 100
+          : (loan.amount * loan.interestPercent * daysPassed) / 100
+        return sum + Math.max(0, interest)
+      }
+      return sum
     }, 0)
     
-    // Calculate total repayments
-    const totalRepayments = allLoans.reduce((sum, loan) => {
+    // Calculate total repayments (only from active and repaid loans)
+    const totalRepayments = allLoans.filter(loan => ['active', 'repaid'].includes(loan.status)).reduce((sum, loan) => {
       return sum + (loan.payment?.cash || 0) + (loan.payment?.online || 0)
     }, 0)
     
@@ -324,7 +340,7 @@ exports.generateAuditReport = async (req, res) => {
         totalLoans: allLoans.length,
         totalLoanValue,
         activeLoans: activeLoans.length,
-        settledLoans: settledLoans.length,
+        repaidLoans: repaidLoans.length,
         forfeitedLoans: forfeitedLoans.length,
         totalCustomers: allCustomers.length,
         complianceStatus: 'Compliant'
@@ -642,7 +658,7 @@ exports.downloadAuditReport = async (req, res) => {
         totalLoans: allLoans.length,
         totalLoanValue,
         activeLoans: activeLoans.length,
-        settledLoans: settledLoans.length,
+        repaidLoans: repaidLoans.length,
         forfeitedLoans: forfeitedLoans.length,
         totalCustomers: allCustomers.length
       },

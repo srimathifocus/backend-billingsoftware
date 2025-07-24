@@ -68,10 +68,10 @@ exports.getActiveLoans = async (req, res) => {
   }
 }
 
-// Get all inactive loans
+// Get all repaid loans (previously called inactive)
 exports.getInactiveLoans = async (req, res) => {
   try {
-    const loans = await Loan.find({ status: 'inactive' })
+    const loans = await Loan.find({ status: 'repaid' })
       .populate('customerId', 'name phone')
       .populate('itemIds', 'name category weight estimatedValue')
       .sort({ createdAt: -1 })
@@ -199,7 +199,7 @@ exports.getLoanStatistics = async (req, res) => {
     
     const totalLoans = await Loan.countDocuments()
     const activeLoans = await Loan.countDocuments({ status: 'active' })
-    const inactiveLoans = await Loan.countDocuments({ status: 'inactive' })
+    const inactiveLoans = await Loan.countDocuments({ status: 'repaid' })
     
     // Get today's loans given
     const todayLoansGiven = await Loan.find({
@@ -237,7 +237,7 @@ exports.getLoanStatistics = async (req, res) => {
     ])
     
     const inactiveLoanAmounts = await Loan.aggregate([
-      { $match: { status: 'inactive' } },
+      { $match: { status: 'repaid' } },
       { $group: { _id: null, totalAmount: { $sum: '$amount' } } }
     ])
     
@@ -266,9 +266,9 @@ exports.getLoanStatistics = async (req, res) => {
     res.json({
       totalLoans,
       activeLoans,
-      inactiveLoans,
+      repaidLoans: inactiveLoans,
       totalActiveLoanAmount: activeLoanAmounts[0]?.totalAmount || 0,
-      totalInactiveLoanAmount: inactiveLoanAmounts[0]?.totalAmount || 0,
+      totalRepaidLoanAmount: inactiveLoanAmounts[0]?.totalAmount || 0,
       totalCurrentInterest,
       todayLoanAmount,
       todayRepaymentAmount,

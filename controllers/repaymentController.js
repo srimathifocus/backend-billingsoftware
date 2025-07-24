@@ -27,7 +27,7 @@ exports.repayLoan = async (req, res) => {
     
     console.log('Loan found:', loan.loanId, 'status:', loan.status)
     
-    if (loan.status === 'inactive') {
+    if (loan.status === 'repaid') {
       console.log('Loan already repaid:', loan.loanId)
       return res.status(400).json({ message: 'Loan already repaid' })
     }
@@ -109,7 +109,7 @@ exports.repayLoan = async (req, res) => {
       }
       
       // Update loan status
-      loan.status = 'inactive'
+      loan.status = 'repaid'
       await loan.save({ session })
       
       // Update item status

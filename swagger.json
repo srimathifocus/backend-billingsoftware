@@ -73,7 +73,7 @@
           "loanDate": {"type": "string", "format": "date-time"},
           "dueDate": {"type": "string", "format": "date-time"},
           "validity": {"type": "number"},
-          "status": {"type": "string", "enum": ["active", "inactive"]},
+          "status": {"type": "string", "enum": ["active", "repaid"]},
           "payment": {
             "type": "object",
             "properties": {
@@ -529,11 +529,11 @@
     "/loans/inactive": {
       "get": {
         "tags": ["Loans"],
-        "summary": "Get all inactive loans",
+        "summary": "Get all repaid loans",
         "security": [{"bearerAuth": []}],
         "responses": {
           "200": {
-            "description": "List of inactive loans with repayment details",
+            "description": "List of repaid loans with repayment details",
             "content": {
               "application/json": {
                 "schema": {
@@ -589,7 +589,7 @@
                   "properties": {
                     "totalLoans": {"type": "number"},
                     "activeLoans": {"type": "number"},
-                    "inactiveLoans": {"type": "number"},
+                    "repaidLoans": {"type": "number"},
                     "totalAmount": {"type": "number"},
                     "activeAmount": {"type": "number"}
                   }

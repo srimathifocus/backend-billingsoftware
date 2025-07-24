@@ -19,6 +19,8 @@ const generateAuditReportPDF = async (auditData, filePath) => {
       const doc = new PDFDocument({ 
         margin: 50,
         size: 'A4',
+        bufferPages: true,
+        autoFirstPage: true,
         info: {
           Title: auditData.title,
           Author: auditData.preparedBy,
@@ -259,6 +261,8 @@ const generateAuditReportPDF = async (auditData, filePath) => {
            { align: 'center', width: contentWidth }
          )
 
+      // Properly end the document to prevent extra pages
+      doc.flushPages()
       doc.end()
 
       stream.on('finish', () => {

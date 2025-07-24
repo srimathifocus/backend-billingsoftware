@@ -48,7 +48,7 @@ const loanSchema = new mongoose.Schema({
   },
   status: { 
     type: String, 
-    enum: ['active', 'inactive'], 
+    enum: ['active', 'repaid'], 
     default: 'active' 
   }
 }, { timestamps: true })

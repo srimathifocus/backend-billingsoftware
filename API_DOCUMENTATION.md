@@ -127,7 +127,7 @@ Returns all active (unpaid) loans with current interest calculation.
 ```
 GET /api/loans/inactive
 ```
-Returns all inactive (repaid) loans with repayment details.
+Returns all repaid loans with repayment details.
 
 #### Search Loans by Phone
 ```
