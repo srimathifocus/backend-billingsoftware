@@ -1,8 +1,11 @@
 /// server.js
-const express = require('express')
-const cors = require('cors')
+// Load environment variables first
 const dotenv = require('dotenv')
 const path = require('path')
+dotenv.config({ path: path.join(__dirname, '.env') })
+
+const express = require('express')
+const cors = require('cors')
 const swaggerUi = require('swagger-ui-express')
 const swaggerDocument = require('./swagger.json')
 const connectDB = require('./config/db')
@@ -21,8 +24,6 @@ const shopDetailsRoutes = require('./routes/shopDetailsRoutes')
 const expenseRoutes = require('./routes/expenseRoutes')
 const balanceSheetRoutes = require('./routes/balanceSheetRoutes')
 const financeRoutes = require('./routes/financeRoutes')
-
-dotenv.config()
 const app = express()
 
 // Middleware

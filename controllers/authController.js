@@ -66,11 +66,43 @@ exports.registerAdmin = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body
-    const user = await User.findOne({ email })
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ message: 'Invalid credentials' })
+    
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' })
     }
-    res.json({ token: generateToken(user._id), user })
+    
+    // Find user by email
+    const user = await User.findOne({ email })
+    if (!user) {
+      return res.status(401).json({ 
+        message: 'Email not found',
+        field: 'email' 
+      })
+    }
+    
+    // Check password
+    const isPasswordValid = await bcrypt.compare(password, user.password)
+    if (!isPasswordValid) {
+      return res.status(401).json({ 
+        message: 'Incorrect password',
+        field: 'password'
+      })
+    }
+    
+    // Remove password from user response
+    const userResponse = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      phone: user.phone,
+      department: user.department,
+      isActive: user.isActive,
+      createdAt: user.createdAt
+    }
+    
+    res.json({ token: generateToken(user._id), user: userResponse })
   } catch (error) {
     res.status(500).json({ message: error.message })
   }
