@@ -26,8 +26,20 @@ const balanceSheetRoutes = require('./routes/balanceSheetRoutes')
 const financeRoutes = require('./routes/financeRoutes')
 const app = express()
 
+// CORS configuration for production
+const corsOptions = {
+  origin: [
+    'https://pawnbillingsoftwarefocus.netlify.app',
+    'http://localhost:3000', // Keep for local development
+    'http://localhost:5173', // Vite default port
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}
+
 // Middleware
-app.use(cors())
+app.use(cors(corsOptions))
 app.use(express.json())
 
 // Connect to database
