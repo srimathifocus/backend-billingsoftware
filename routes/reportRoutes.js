@@ -10,5 +10,7 @@ router.get('/dashboard', protect, adminOnly, reportController.getReportDashboard
 router.get('/transactions', protect, adminOnly, reportController.generateTransactionReport)
 router.get('/audit', protect, adminOnly, reportController.generateAuditReport)
 router.get('/audit/download', protect, adminOnly, reportController.downloadAuditReport)
+router.get('/enhanced-audit', protect, adminOnly, reportController.generateEnhancedAuditReport)
+router.get('/list', protect, adminOnly, reportController.listGeneratedReports)
 
 module.exports = router

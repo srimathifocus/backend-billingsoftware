@@ -20,6 +20,7 @@ const userRoutes = require('./routes/userRoutes')
 const shopDetailsRoutes = require('./routes/shopDetailsRoutes')
 const expenseRoutes = require('./routes/expenseRoutes')
 const balanceSheetRoutes = require('./routes/balanceSheetRoutes')
+const financeRoutes = require('./routes/financeRoutes')
 
 dotenv.config()
 const app = express()
@@ -46,6 +47,7 @@ app.use('/api/users', userRoutes)
 app.use('/api/shop-details', shopDetailsRoutes)
 app.use('/api/expenses', expenseRoutes)
 app.use('/api/balance-sheet', balanceSheetRoutes)
+app.use('/api/finance', financeRoutes)
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

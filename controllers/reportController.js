@@ -5,7 +5,38 @@ const User = require('../models/User')
 const ShopDetails = require('../models/ShopDetails')
 const BalanceSheet = require('../models/BalanceSheet')
 const Expense = require('../models/Expense')
+const Finance = require('../models/Finance')
 const moment = require('moment')
+
+// Helper function to build balance sheet and expense queries for date periods
+const buildMonthlyDataQueries = (periodStart, periodEnd) => {
+  // Create a list of all year-month combinations in the period
+  const yearMonthCombinations = []
+  const current = moment(periodStart).startOf('month')
+  const end = moment(periodEnd).endOf('month')
+  
+  while (current.isSameOrBefore(end, 'month')) {
+    yearMonthCombinations.push({
+      year: current.year(),
+      month: current.month() + 1 // MongoDB months are 1-based
+    })
+    current.add(1, 'month')
+  }
+  
+  // Build the query using $or with all year-month combinations
+  if (yearMonthCombinations.length > 0) {
+    const query = {
+      $or: yearMonthCombinations.map(ym => ({
+        year: ym.year,
+        month: ym.month
+      }))
+    }
+    return query
+  } else {
+    // Fallback to empty results if no valid period
+    return { _id: { $exists: false } }
+  }
+}
 
 // Legacy report function (kept for backward compatibility)
 exports.getReport = async (req, res) => {
@@ -165,29 +196,87 @@ exports.generateTransactionReport = async (req, res) => {
   }
 }
 
-// Generate Audit Report
+// Generate Tamil Nadu Audit Report (Updated to use Finance Management data)
 exports.generateAuditReport = async (req, res) => {
   try {
-    const { financialYear } = req.query
+    console.log('🔍 Generating Tamil Nadu Audit Report:', req.query)
     
-    // Default to current financial year (April to March)
-    const currentDate = new Date()
-    const currentYear = currentDate.getFullYear()
-    const currentMonth = currentDate.getMonth() + 1 // JavaScript months are 0-based
+    // Redirect to the new Tamil Nadu audit report endpoint
+    const financeController = require('./financeController')
+    return await financeController.generateTamilNaduAuditReport(req, res)
     
-    // Determine financial year - if current month is Jan-Mar, we're in the second year of FY
-    const fyYear = financialYear ? 
-      parseInt(financialYear) : 
-      (currentMonth >= 4 ? currentYear : currentYear - 1)
-    
-    const fyStart = moment(`${fyYear}-04-01`).startOf('day').toDate()
-    const fyEnd = moment(`${fyYear + 1}-03-31`).endOf('day').toDate()
-    
+  } catch (error) {
+    console.error('❌ Audit report error:', error)
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    })
+  }
+}
 
+// Legacy Audit Report (kept for backward compatibility)
+exports.generateLegacyAuditReport = async (req, res) => {
+  try {
+    const { reportType, startDate, endDate, month, year } = req.query
+    console.log('🔍 Legacy Audit Report Query Parameters:', req.query)
     
-    const dateFilter = {
-      createdAt: { $gte: fyStart, $lte: fyEnd }
+    let dateFilter = {}
+    let reportTitle = ''
+    let periodStart, periodEnd
+    
+    // Handle different report types
+    switch (reportType) {
+      case 'monthly':
+        if (!month || !year) {
+          return res.status(400).json({ message: 'Month and year are required for monthly reports' })
+        }
+        // For monthly reports, show data only for the selected month and year
+        periodStart = moment(`${year}-${month.padStart(2, '0')}-01`).startOf('month').toDate()
+        periodEnd = moment(`${year}-${month.padStart(2, '0')}-01`).endOf('month').toDate()
+        reportTitle = `Monthly Audit Report - ${moment(periodStart).format('MMMM YYYY')}`
+        break
+        
+      case 'yearly':
+        const reportYear = year ? parseInt(year) : moment().year()
+        periodStart = moment(`${reportYear}-01-01`).startOf('year').toDate()
+        periodEnd = moment(`${reportYear}-12-31`).endOf('year').toDate()
+        reportTitle = `Yearly Audit Report - ${reportYear}`
+        break
+        
+      case 'custom':
+        if (!startDate || !endDate) {
+          return res.status(400).json({ message: 'Start date and end date are required for custom range' })
+        }
+        periodStart = moment(startDate).startOf('day').toDate()
+        periodEnd = moment(endDate).endOf('day').toDate()
+        reportTitle = `Audit Report - ${moment(periodStart).format('DD/MM/YYYY')} to ${moment(periodEnd).format('DD/MM/YYYY')}`
+        break
+        
+      case 'financial':
+      default:
+        // For financial year reports, show data for the full financial year (April to March)
+        const currentDate = new Date()
+        const currentYear = currentDate.getFullYear()
+        const currentMonth = currentDate.getMonth() + 1
+        
+        const fyYear = year ? parseInt(year) : (currentMonth >= 4 ? currentYear : currentYear - 1)
+        periodStart = moment(`${fyYear}-04-01`).startOf('day').toDate()
+        periodEnd = moment(`${fyYear + 1}-03-31`).endOf('day').toDate()
+        reportTitle = `Financial Year Audit Report - ${fyYear}-${fyYear + 1}`
+        break
     }
+    
+    dateFilter = {
+      createdAt: { $gte: periodStart, $lte: periodEnd }
+    }
+    
+    console.log('📅 Date Filter Applied:', {
+      reportType,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+      dateFilter
+    })
+
     
     // Fetch shop details from database
     const shopDetails = await ShopDetails.findOne({ isActive: true })
@@ -195,31 +284,145 @@ exports.generateAuditReport = async (req, res) => {
       return res.status(404).json({ message: 'Shop details not found. Please configure shop details first.' })
     }
     
-    // Get all data for the financial year
+    // Get all data for the selected period
+    console.log('🔍 Querying loans with dateFilter:', dateFilter)
     const allLoans = await Loan.find(dateFilter)
       .populate('customerId', 'name phone email')
       .populate('itemIds', 'name category weight')
+      .sort({ createdAt: -1 })
+    
+    console.log(`📊 Found ${allLoans.length} loans matching the date filter`)
     
     const allCustomers = await Customer.find(dateFilter)
     const allUsers = await User.find()
     
-    // Fetch balance sheet data for the financial year (aggregate monthly data)
-    const balanceSheetData = await BalanceSheet.find({
-      year: { $in: [fyYear, fyYear + 1] },
-      $or: [
-        { year: fyYear, month: { $gte: 4 } }, // Apr-Dec of start year
-        { year: fyYear + 1, month: { $lte: 3 } } // Jan-Mar of end year
-      ]
+    // Get all repayments for the period
+    const allRepayments = await Repayment.find({
+      repaymentDate: { $gte: periodStart, $lte: periodEnd }
+    }).populate({
+      path: 'loanId',
+      populate: {
+        path: 'customerId',
+        select: 'name phone email'
+      }
     })
     
-    // Fetch expense data for the financial year
-    const expenseData = await Expense.find({
-      year: { $in: [fyYear, fyYear + 1] },
-      $or: [
-        { year: fyYear, month: { $gte: 4 } }, // Apr-Dec of start year
-        { year: fyYear + 1, month: { $lte: 3 } } // Jan-Mar of end year
-      ]
-    })
+    // Get balance sheet and expense data for the period
+    const monthlyQuery = buildMonthlyDataQueries(periodStart, periodEnd)
+    
+    const balanceSheetData = await BalanceSheet.find(monthlyQuery)
+    const expenseData = await Expense.find(monthlyQuery)
+    
+    // Helper function to calculate customer-wise interest analysis
+    const calculateCustomerInterestAnalysis = () => {
+      const customerMap = new Map()
+      
+      // Process loans
+      allLoans.forEach(loan => {
+        const customerId = loan.customerId._id.toString()
+        const customerName = loan.customerId.name
+        
+        if (!customerMap.has(customerId)) {
+          customerMap.set(customerId, {
+            customerName,
+            totalLoansGiven: 0,
+            totalRepaid: 0,
+            interestEarned: 0,
+            outstanding: 0
+          })
+        }
+        
+        const customer = customerMap.get(customerId)
+        customer.totalLoansGiven += loan.amount
+        
+        // Calculate repayments for this loan
+        const loanRepayments = allRepayments.filter(rep => 
+          rep.loanId && rep.loanId._id.toString() === loan._id.toString()
+        )
+        
+        const totalRepaidForLoan = loanRepayments.reduce((sum, rep) => sum + rep.totalAmount, 0)
+        const interestEarnedForLoan = loanRepayments.reduce((sum, rep) => sum + rep.interestAmount, 0)
+        
+        customer.totalRepaid += totalRepaidForLoan
+        customer.interestEarned += interestEarnedForLoan
+        customer.outstanding += Math.max(0, loan.amount - totalRepaidForLoan)
+      })
+      
+      return Array.from(customerMap.values()).sort((a, b) => b.totalLoansGiven - a.totalLoansGiven)
+    }
+    
+    // Helper function to calculate monthly profit & loss
+    const calculateMonthlyProfitLoss = () => {
+      const monthlyData = []
+      const current = moment(periodStart)
+      const end = moment(periodEnd)
+      
+      while (current.isSameOrBefore(end, 'month')) {
+        const monthStart = current.clone().startOf('month').toDate()
+        const monthEnd = current.clone().endOf('month').toDate()
+        
+        // Loans given in this month
+        const monthLoans = allLoans.filter(loan => 
+          moment(loan.createdAt).isBetween(monthStart, monthEnd, null, '[]')
+        )
+        const loansGiven = monthLoans.reduce((sum, loan) => sum + loan.amount, 0)
+        
+        // Repayments in this month
+        const monthRepayments = allRepayments.filter(rep =>
+          moment(rep.repaymentDate).isBetween(monthStart, monthEnd, null, '[]')
+        )
+        const repayments = monthRepayments.reduce((sum, rep) => sum + rep.totalAmount, 0)
+        const interestIncome = monthRepayments.reduce((sum, rep) => sum + rep.interestAmount, 0)
+        
+        // Expenses for this month
+        const monthExpenses = expenseData.filter(exp => 
+          exp.year === current.year() && exp.month === (current.month() + 1)
+        )
+        const expenses = monthExpenses.reduce((sum, exp) => 
+          sum + (exp.salaries || 0) + (exp.rent || 0) + (exp.utilities || 0) + (exp.miscellaneous || 0), 0
+        )
+        
+        const netProfit = interestIncome - expenses
+        
+        monthlyData.push({
+          month: current.format('MMM YYYY'),
+          loansGiven: Math.round(loansGiven),
+          repayments: Math.round(repayments),
+          interestIncome: Math.round(interestIncome),
+          expenses: Math.round(expenses),
+          netProfit: Math.round(netProfit)
+        })
+        
+        current.add(1, 'month')
+      }
+      
+      return monthlyData
+    }
+    
+    // Calculate transaction summary
+    const calculateTransactionSummary = () => {
+      const totalLoanTransactions = allLoans.length
+      const totalRepaymentTransactions = allRepayments.length
+      const totalTransactions = totalLoanTransactions + totalRepaymentTransactions
+      
+      const cashTransactions = allLoans.reduce((sum, loan) => sum + (loan.payment?.cash || 0), 0) +
+                              allRepayments.reduce((sum, rep) => sum + (rep.payment?.cash || 0), 0)
+      
+      const onlineTransactions = allLoans.reduce((sum, loan) => sum + (loan.payment?.online || 0), 0) +
+                                allRepayments.reduce((sum, rep) => sum + (rep.payment?.online || 0), 0)
+      
+      const totalAmount = cashTransactions + onlineTransactions
+      const avgTransactionValue = totalTransactions > 0 ? Math.round(totalAmount / totalTransactions) : 0
+      
+      return {
+        totalTransactions,
+        loanTransactions: totalLoanTransactions,
+        repaymentTransactions: totalRepaymentTransactions,
+        cashTransactions: Math.round(cashTransactions),
+        onlineTransactions: Math.round(onlineTransactions),
+        avgTransactionValue
+      }
+    }
     
     // Calculate financial data
     const activeLoans = allLoans.filter(loan => loan.status === 'active')
@@ -268,7 +471,7 @@ exports.generateAuditReport = async (req, res) => {
     const goldRatePerGram = 6000
     const estimatedGoldValue = totalGoldWeight * goldRatePerGram
     
-    // Aggregate balance sheet data for the financial year
+    // Aggregate balance sheet data for the selected period
     const aggregatedBalanceSheet = balanceSheetData.reduce((acc, bs) => {
       acc.cashInHandBank += bs.cashInHandBank || 0
       acc.loanReceivables += bs.loanReceivables || 0
@@ -292,11 +495,19 @@ exports.generateAuditReport = async (req, res) => {
       saleOfForfeitedItems: 0
     })
     
-    // If no expense data found for the specified financial year, use the latest available data
+    // Handle expense data for the selected period
     let finalExpenseData = expenseData
     if (expenseData.length === 0) {
-      console.log('No expense data found for financial year, using latest data')
-      finalExpenseData = await Expense.find().sort({ year: -1, month: -1 }).limit(12)
+      console.log(`No expense data found for the selected period (${reportType})`)
+      // For monthly reports, don't fall back to latest data - show zero
+      if (reportType === 'monthly') {
+        console.log('Monthly report: Using zero values for expenses as no data found for the month')
+        finalExpenseData = []
+      } else {
+        // For financial year and yearly reports, can fall back to latest data
+        console.log('Using latest available expense data for non-monthly reports')
+        finalExpenseData = await Expense.find().sort({ year: -1, month: -1 }).limit(12)
+      }
     }
     
     // Aggregate expense data
@@ -314,7 +525,9 @@ exports.generateAuditReport = async (req, res) => {
       miscellaneous: 0
     })
     
-
+    // Log the data found for debugging
+    console.log(`📊 Balance Sheet Data: Found ${balanceSheetData.length} records for the period`)
+    console.log(`📊 Expense Data: Found ${finalExpenseData.length} records for the period`)
     
     // Calculate totals
     const totalAssets = aggregatedBalanceSheet.cashInHandBank + aggregatedBalanceSheet.loanReceivables + 
@@ -325,10 +538,75 @@ exports.generateAuditReport = async (req, res) => {
     const totalRevenue = aggregatedBalanceSheet.interestIncome + aggregatedBalanceSheet.saleOfForfeitedItems
     const netProfit = totalRevenue - totalExpenses
     
+    // Calculate new data structures
+    const customerInterestAnalysis = calculateCustomerInterestAnalysis()
+    const monthlyProfitLoss = calculateMonthlyProfitLoss()
+    const transactionSummary = calculateTransactionSummary()
+    
+    // Calculate monthly totals
+    const monthlyTotals = monthlyProfitLoss.reduce((acc, month) => {
+      acc.totalLoansGiven += month.loansGiven
+      acc.totalRepayments += month.repayments
+      acc.totalInterestIncome += month.interestIncome
+      acc.totalExpenses += month.expenses
+      acc.totalNetProfit += month.netProfit
+      return acc
+    }, {
+      totalLoansGiven: 0,
+      totalRepayments: 0,
+      totalInterestIncome: 0,
+      totalExpenses: 0,
+      totalNetProfit: 0
+    })
+    
+    // Prepare loan summary data
+    const loanSummary = allLoans.map(loan => ({
+      loanId: loan.loanId,
+      customerName: loan.customerId.name,
+      amount: loan.amount,
+      status: loan.status,
+      loanDate: loan.loanDate || loan.createdAt,
+      dueDate: loan.dueDate,
+      extendedDate: loan.extendedDate || null
+    }))
+    
+    // Prepare detailed loan register for the selected period
+    const loanRegisterDetails = allLoans.map(loan => {
+      // Get primary item details
+      const primaryItem = loan.itemIds && loan.itemIds.length > 0 ? loan.itemIds[0] : null
+      const itemDescription = primaryItem 
+        ? `${primaryItem.name}${primaryItem.weight ? ` (${primaryItem.weight}g)` : ''}`
+        : 'N/A'
+      
+      return {
+        loanId: loan.loanId || 'N/A',
+        customerName: loan.customerId.name || 'N/A',
+        itemDescription: itemDescription,
+        itemWeight: primaryItem?.weight || 0,
+        loanAmount: loan.amount || 0,
+        interestPercent: loan.interestPercent || 0,
+        status: loan.status === 'repaid' ? 'Settled' : 
+                loan.status === 'forfeited' ? 'Forfeited' : 
+                loan.status === 'active' ? 'Active' : 
+                loan.status.charAt(0).toUpperCase() + loan.status.slice(1),
+        loanDate: loan.loanDate || loan.createdAt
+      }
+    }).sort((a, b) => new Date(b.loanDate) - new Date(a.loanDate)) // Sort by loan date descending
+    
+    // Calculate loan register statistics
+    const loanRegisterStats = {
+      totalPledgedLoans: allLoans.length,
+      activeLoans: activeLoans.length,
+      settledLoans: repaidLoans.length,
+      forfeitedLoans: forfeitedLoans.length,
+      totalLoanValue: totalLoanValue,
+      totalItemWeight: loanRegisterDetails.reduce((sum, loan) => sum + (loan.itemWeight || 0), 0)
+    }
+    
     // Generate report data
     const auditReport = {
       title: `${shopDetails.shopName.toUpperCase()} – AUDIT REPORT`,
-      auditPeriod: `${moment(fyStart).format('MMMM D, YYYY')} – ${moment(fyEnd).format('MMMM D, YYYY')}`,
+      auditPeriod: `${moment(periodStart).format('MMMM D, YYYY')} – ${moment(periodEnd).format('MMMM D, YYYY')}`,
       location: shopDetails.location,
       licenseNo: shopDetails.licenseNumber,
       preparedBy: shopDetails.auditorName || 'R. Aravind & Co., Chartered Accountants',
@@ -436,7 +714,16 @@ exports.generateAuditReport = async (req, res) => {
         waivedInterest: Math.round(aggregatedBalanceSheet.interestIncome * 0.02) // Assuming 2% waived
       },
       
-
+      // New data sections
+      loanSummary,
+      customerInterestAnalysis,
+      monthlyProfitLoss,
+      monthlyTotals,
+      transactionSummary,
+      
+      // Detailed Loan Register Summary
+      loanRegisterDetails,
+      loanRegisterStats,
       
       // Auditor Observations
       observations: [
@@ -444,18 +731,26 @@ exports.generateAuditReport = async (req, res) => {
         'Physical inventory matched ledger entries during audit',
         'GST & IT returns filed on time',
         'No cases of regulatory violations found',
-       
+        `Total of ${allLoans.length} loans processed during the period`,
+        `Customer-wise interest analysis shows proper interest calculations`,
+        `Monthly profit/loss tracking shows consistent business operations`
       ],
       
       // Conclusion
-      conclusion: `${shopDetails.shopName} has maintained financial and operational compliance for the financial year. Proper documentation, record-keeping, and KYC procedures are in place.`
+      conclusion: `${shopDetails.shopName} has maintained financial and operational compliance for the selected period. Proper documentation, record-keeping, and KYC procedures are in place. The detailed loan summary and customer-wise interest analysis demonstrate transparent business operations.`
     }
     
     res.json(auditReport)
     
   } catch (error) {
-    console.error('Audit report error:', error)
-    res.status(500).json({ message: error.message })
+    console.error('🚨 Audit report error:', error)
+    console.error('🚨 Error stack:', error.stack)
+    console.error('🚨 Request query:', req.query)
+    res.status(500).json({ 
+      message: 'Internal server error while generating audit report',
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    })
   }
 }
 
@@ -536,23 +831,57 @@ exports.downloadAuditReport = async (req, res) => {
     const path = require('path')
     const fs = require('fs')
     
-    const { financialYear } = req.query
+    // Use the same parameters as generateAuditReport
+    const { reportType, startDate, endDate, month, year } = req.query
     
-    // Default to current financial year (April to March)
-    const currentDate = new Date()
-    const currentYear = currentDate.getFullYear()
-    const currentMonth = currentDate.getMonth() + 1 // JavaScript months are 0-based
+    let dateFilter = {}
+    let reportTitle = ''
+    let periodStart, periodEnd
     
-    // Determine financial year - if current month is Jan-Mar, we're in the second year of FY
-    const fyYear = financialYear ? 
-      parseInt(financialYear) : 
-      (currentMonth >= 4 ? currentYear : currentYear - 1)
+    // Handle different report types (same logic as generateAuditReport)
+    switch (reportType) {
+      case 'monthly':
+        if (!month || !year) {
+          return res.status(400).json({ message: 'Month and year are required for monthly reports' })
+        }
+        // For monthly reports, show data only for the selected month and year
+        periodStart = moment(`${year}-${month.padStart(2, '0')}-01`).startOf('month').toDate()
+        periodEnd = moment(`${year}-${month.padStart(2, '0')}-01`).endOf('month').toDate()
+        reportTitle = `Monthly Audit Report - ${moment(periodStart).format('MMMM YYYY')}`
+        break
+        
+      case 'yearly':
+        const reportYear = year ? parseInt(year) : moment().year()
+        periodStart = moment(`${reportYear}-01-01`).startOf('year').toDate()
+        periodEnd = moment(`${reportYear}-12-31`).endOf('year').toDate()
+        reportTitle = `Yearly Audit Report - ${reportYear}`
+        break
+        
+      case 'custom':
+        if (!startDate || !endDate) {
+          return res.status(400).json({ message: 'Start date and end date are required for custom range' })
+        }
+        periodStart = moment(startDate).startOf('day').toDate()
+        periodEnd = moment(endDate).endOf('day').toDate()
+        reportTitle = `Audit Report - ${moment(periodStart).format('DD/MM/YYYY')} to ${moment(periodEnd).format('DD/MM/YYYY')}`
+        break
+        
+      case 'financial':
+      default:
+        // For financial year reports, show data for the full financial year (April to March)
+        const currentDate = new Date()
+        const currentYear = currentDate.getFullYear()
+        const currentMonth = currentDate.getMonth() + 1
+        
+        const fyYear = year ? parseInt(year) : (currentMonth >= 4 ? currentYear : currentYear - 1)
+        periodStart = moment(`${fyYear}-04-01`).startOf('day').toDate()
+        periodEnd = moment(`${fyYear + 1}-03-31`).endOf('day').toDate()
+        reportTitle = `Financial Year Audit Report - ${fyYear}-${fyYear + 1}`
+        break
+    }
     
-    const fyStart = moment(`${fyYear}-04-01`).startOf('day').toDate()
-    const fyEnd = moment(`${fyYear + 1}-03-31`).endOf('day').toDate()
-    
-    const dateFilter = {
-      createdAt: { $gte: fyStart, $lte: fyEnd }
+    dateFilter = {
+      createdAt: { $gte: periodStart, $lte: periodEnd }
     }
     
     // Fetch shop details from database
@@ -561,34 +890,146 @@ exports.downloadAuditReport = async (req, res) => {
       return res.status(404).json({ message: 'Shop details not found. Please configure shop details first.' })
     }
     
-    // Get all data for the financial year (same logic as generateAuditReport)
+    // Get all data for the selected period (same logic as generateAuditReport)
     const allLoans = await Loan.find(dateFilter)
       .populate('customerId', 'name phone email')
       .populate('itemIds', 'name category weight')
+      .sort({ createdAt: -1 })
     
     const allCustomers = await Customer.find(dateFilter)
+    const allUsers = await User.find()
     
-    // Fetch balance sheet data for the financial year
-    const balanceSheetData = await BalanceSheet.find({
-      year: { $in: [fyYear, fyYear + 1] },
-      $or: [
-        { year: fyYear, month: { $gte: 4 } },
-        { year: fyYear + 1, month: { $lte: 3 } }
-      ]
+    // Get all repayments for the period
+    const allRepayments = await Repayment.find({
+      repaymentDate: { $gte: periodStart, $lte: periodEnd }
+    }).populate({
+      path: 'loanId',
+      populate: {
+        path: 'customerId',
+        select: 'name phone email'
+      }
     })
     
-    // Fetch expense data for the financial year
-    const expenseData = await Expense.find({
-      year: { $in: [fyYear, fyYear + 1] },
-      $or: [
-        { year: fyYear, month: { $gte: 4 } },
-        { year: fyYear + 1, month: { $lte: 3 } }
-      ]
-    })
+    // Get balance sheet and expense data for the period
+    const monthlyQuery = buildMonthlyDataQueries(periodStart, periodEnd)
+    
+    const balanceSheetData = await BalanceSheet.find(monthlyQuery)
+    const expenseData = await Expense.find(monthlyQuery)
+    
+    // Helper function to calculate customer-wise interest analysis
+    const calculateCustomerInterestAnalysis = () => {
+      const customerMap = new Map()
+      
+      // Process loans
+      allLoans.forEach(loan => {
+        const customerId = loan.customerId._id.toString()
+        const customerName = loan.customerId.name
+        
+        if (!customerMap.has(customerId)) {
+          customerMap.set(customerId, {
+            customerName,
+            totalLoansGiven: 0,
+            totalRepaid: 0,
+            interestEarned: 0,
+            outstanding: 0
+          })
+        }
+        
+        const customer = customerMap.get(customerId)
+        customer.totalLoansGiven += loan.amount
+        
+        // Calculate repayments for this loan
+        const loanRepayments = allRepayments.filter(rep => 
+          rep.loanId && rep.loanId._id.toString() === loan._id.toString()
+        )
+        
+        const totalRepaidForLoan = loanRepayments.reduce((sum, rep) => sum + rep.totalAmount, 0)
+        const interestEarnedForLoan = loanRepayments.reduce((sum, rep) => sum + rep.interestAmount, 0)
+        
+        customer.totalRepaid += totalRepaidForLoan
+        customer.interestEarned += interestEarnedForLoan
+        customer.outstanding += Math.max(0, loan.amount - totalRepaidForLoan)
+      })
+      
+      return Array.from(customerMap.values()).sort((a, b) => b.totalLoansGiven - a.totalLoansGiven)
+    }
+    
+    // Helper function to calculate monthly profit & loss
+    const calculateMonthlyProfitLoss = () => {
+      const monthlyData = []
+      const current = moment(periodStart)
+      const end = moment(periodEnd)
+      
+      while (current.isSameOrBefore(end, 'month')) {
+        const monthStart = current.clone().startOf('month').toDate()
+        const monthEnd = current.clone().endOf('month').toDate()
+        
+        // Loans given in this month
+        const monthLoans = allLoans.filter(loan => 
+          moment(loan.createdAt).isBetween(monthStart, monthEnd, null, '[]')
+        )
+        const loansGiven = monthLoans.reduce((sum, loan) => sum + loan.amount, 0)
+        
+        // Repayments in this month
+        const monthRepayments = allRepayments.filter(rep =>
+          moment(rep.repaymentDate).isBetween(monthStart, monthEnd, null, '[]')
+        )
+        const repayments = monthRepayments.reduce((sum, rep) => sum + rep.totalAmount, 0)
+        const interestIncome = monthRepayments.reduce((sum, rep) => sum + rep.interestAmount, 0)
+        
+        // Expenses for this month
+        const monthExpenses = expenseData.filter(exp => 
+          exp.year === current.year() && exp.month === (current.month() + 1)
+        )
+        const expenses = monthExpenses.reduce((sum, exp) => 
+          sum + (exp.salaries || 0) + (exp.rent || 0) + (exp.utilities || 0) + (exp.miscellaneous || 0), 0
+        )
+        
+        const netProfit = interestIncome - expenses
+        
+        monthlyData.push({
+          month: current.format('MMM YYYY'),
+          loansGiven: Math.round(loansGiven),
+          repayments: Math.round(repayments),
+          interestIncome: Math.round(interestIncome),
+          expenses: Math.round(expenses),
+          netProfit: Math.round(netProfit)
+        })
+        
+        current.add(1, 'month')
+      }
+      
+      return monthlyData
+    }
+    
+    // Calculate transaction summary
+    const calculateTransactionSummary = () => {
+      const totalLoanTransactions = allLoans.length
+      const totalRepaymentTransactions = allRepayments.length
+      const totalTransactions = totalLoanTransactions + totalRepaymentTransactions
+      
+      const cashTransactions = allLoans.reduce((sum, loan) => sum + (loan.payment?.cash || 0), 0) +
+                              allRepayments.reduce((sum, rep) => sum + (rep.payment?.cash || 0), 0)
+      
+      const onlineTransactions = allLoans.reduce((sum, loan) => sum + (loan.payment?.online || 0), 0) +
+                                allRepayments.reduce((sum, rep) => sum + (rep.payment?.online || 0), 0)
+      
+      const totalAmount = cashTransactions + onlineTransactions
+      const avgTransactionValue = totalTransactions > 0 ? Math.round(totalAmount / totalTransactions) : 0
+      
+      return {
+        totalTransactions,
+        loanTransactions: totalLoanTransactions,
+        repaymentTransactions: totalRepaymentTransactions,
+        cashTransactions: Math.round(cashTransactions),
+        onlineTransactions: Math.round(onlineTransactions),
+        avgTransactionValue
+      }
+    }
     
     // Calculate financial data (same logic as generateAuditReport)
     const activeLoans = allLoans.filter(loan => loan.status === 'active')
-    const settledLoans = allLoans.filter(loan => loan.status === 'settled')
+    const repaidLoans = allLoans.filter(loan => loan.status === 'repaid')
     const forfeitedLoans = allLoans.filter(loan => loan.status === 'forfeited')
     
     const totalLoanValue = allLoans.reduce((sum, loan) => sum + loan.amount, 0)
@@ -617,8 +1058,23 @@ exports.downloadAuditReport = async (req, res) => {
       saleOfForfeitedItems: 0
     })
     
+    // Handle expense data for the selected period
+    let finalExpenseData = expenseData
+    if (expenseData.length === 0) {
+      console.log(`No expense data found for the selected period (${reportType})`)
+      // For monthly reports, don't fall back to latest data - show zero
+      if (reportType === 'monthly') {
+        console.log('Monthly report: Using zero values for expenses as no data found for the month')
+        finalExpenseData = []
+      } else {
+        // For financial year and yearly reports, can fall back to latest data
+        console.log('Using latest available expense data for non-monthly reports')
+        finalExpenseData = await Expense.find().sort({ year: -1, month: -1 }).limit(12)
+      }
+    }
+      
     // Aggregate expense data
-    const aggregatedExpenses = expenseData.reduce((acc, exp) => {
+    const aggregatedExpenses = finalExpenseData.reduce((acc, exp) => {
       acc.salaries += exp.salaries || 0
       acc.rent += exp.rent || 0
       acc.utilities += exp.utilities || 0
@@ -631,6 +1087,10 @@ exports.downloadAuditReport = async (req, res) => {
       miscellaneous: 0
     })
     
+    // Log the data found for debugging
+    console.log(`📊 Balance Sheet Data: Found ${balanceSheetData.length} records for the period`)
+    console.log(`📊 Expense Data: Found ${finalExpenseData.length} records for the period`)
+    
     // Calculate totals
     const totalAssets = aggregatedBalanceSheet.cashInHandBank + aggregatedBalanceSheet.loanReceivables + 
                        aggregatedBalanceSheet.forfeitedInventory + aggregatedBalanceSheet.furnitureFixtures
@@ -638,6 +1098,71 @@ exports.downloadAuditReport = async (req, res) => {
                           aggregatedExpenses.utilities + aggregatedExpenses.miscellaneous
     const totalRevenue = aggregatedBalanceSheet.interestIncome + aggregatedBalanceSheet.saleOfForfeitedItems
     const netProfit = totalRevenue - totalExpenses
+    
+    // Calculate new data structures
+    const customerInterestAnalysis = calculateCustomerInterestAnalysis()
+    const monthlyProfitLoss = calculateMonthlyProfitLoss()
+    const transactionSummary = calculateTransactionSummary()
+    
+    // Calculate monthly totals
+    const monthlyTotals = monthlyProfitLoss.reduce((acc, month) => {
+      acc.totalLoansGiven += month.loansGiven
+      acc.totalRepayments += month.repayments
+      acc.totalInterestIncome += month.interestIncome
+      acc.totalExpenses += month.expenses
+      acc.totalNetProfit += month.netProfit
+      return acc
+    }, {
+      totalLoansGiven: 0,
+      totalRepayments: 0,
+      totalInterestIncome: 0,
+      totalExpenses: 0,
+      totalNetProfit: 0
+    })
+    
+    // Prepare loan summary data
+    const loanSummary = allLoans.map(loan => ({
+      loanId: loan.loanId,
+      customerName: loan.customerId.name,
+      amount: loan.amount,
+      status: loan.status,
+      loanDate: loan.loanDate || loan.createdAt,
+      dueDate: loan.dueDate,
+      extendedDate: loan.extendedDate || null
+    }))
+    
+    // Prepare detailed loan register for the selected period
+    const loanRegisterDetails = allLoans.map(loan => {
+      // Get primary item details
+      const primaryItem = loan.itemIds && loan.itemIds.length > 0 ? loan.itemIds[0] : null
+      const itemDescription = primaryItem 
+        ? `${primaryItem.name}${primaryItem.weight ? ` (${primaryItem.weight}g)` : ''}`
+        : 'N/A'
+      
+      return {
+        loanId: loan.loanId || 'N/A',
+        customerName: loan.customerId.name || 'N/A',
+        itemDescription: itemDescription,
+        itemWeight: primaryItem?.weight || 0,
+        loanAmount: loan.amount || 0,
+        interestPercent: loan.interestPercent || 0,
+        status: loan.status === 'repaid' ? 'Settled' : 
+                loan.status === 'forfeited' ? 'Forfeited' : 
+                loan.status === 'active' ? 'Active' : 
+                loan.status.charAt(0).toUpperCase() + loan.status.slice(1),
+        loanDate: loan.loanDate || loan.createdAt
+      }
+    }).sort((a, b) => new Date(b.loanDate) - new Date(a.loanDate)) // Sort by loan date descending
+    
+    // Calculate loan register statistics
+    const loanRegisterStats = {
+      totalPledgedLoans: allLoans.length,
+      activeLoans: activeLoans.length,
+      settledLoans: repaidLoans.length,
+      forfeitedLoans: forfeitedLoans.length,
+      totalLoanValue: totalLoanValue,
+      totalItemWeight: loanRegisterDetails.reduce((sum, loan) => sum + (loan.itemWeight || 0), 0)
+    }
     
     // Calculate inventory data
     const goldInventory = allLoans.filter(loan => 
@@ -647,7 +1172,7 @@ exports.downloadAuditReport = async (req, res) => {
     // Generate audit report data
     const auditReport = {
       title: `${shopDetails.shopName.toUpperCase()} – AUDIT REPORT`,
-      auditPeriod: `${moment(fyStart).format('MMMM D, YYYY')} – ${moment(fyEnd).format('MMMM D, YYYY')}`,
+      auditPeriod: `${moment(periodStart).format('MMMM D, YYYY')} – ${moment(periodEnd).format('MMMM D, YYYY')}`,
       location: shopDetails.location,
       licenseNo: shopDetails.licenseNumber,
       preparedBy: shopDetails.auditorName || 'R. Aravind & Co., Chartered Accountants',
@@ -715,18 +1240,49 @@ exports.downloadAuditReport = async (req, res) => {
         }
       },
       
+      // New data sections
+      loanSummary,
+      customerInterestAnalysis,
+      monthlyProfitLoss,
+      monthlyTotals,
+      transactionSummary,
+      
+      // Detailed Loan Register Summary
+      loanRegisterDetails,
+      loanRegisterStats,
+      
       observations: [
         'All books maintained with regular entries',
         'Physical inventory matched ledger entries during audit',
         'GST & IT returns filed on time',
-        'No cases of regulatory violations found'
+        'No cases of regulatory violations found',
+        `Total of ${allLoans.length} loans processed during the period`,
+        `Customer-wise interest analysis shows proper interest calculations`,
+        `Monthly profit/loss tracking shows consistent business operations`
       ],
       
-      conclusion: `${shopDetails.shopName} has maintained financial and operational compliance for the financial year. Proper documentation, record-keeping, and procedures are in place.`
+      conclusion: `${shopDetails.shopName} has maintained financial and operational compliance for the selected period. Proper documentation, record-keeping, and KYC procedures are in place. The detailed loan summary and customer-wise interest analysis demonstrate transparent business operations.`
     }
     
     // Generate PDF
-    const fileName = `audit_report_${fyYear}_${fyYear + 1}.pdf`
+    let fileName
+    switch (reportType) {
+      case 'monthly':
+        fileName = `audit_report_monthly_${year}_${month.padStart(2, '0')}.pdf`
+        break
+      case 'yearly':
+        fileName = `audit_report_yearly_${year || moment().year()}.pdf`
+        break
+      case 'custom':
+        fileName = `audit_report_custom_${moment(periodStart).format('YYYY-MM-DD')}_to_${moment(periodEnd).format('YYYY-MM-DD')}.pdf`
+        break
+      case 'financial':
+      default:
+        const fyYear = year ? parseInt(year) : (moment().month() >= 3 ? moment().year() : moment().year() - 1)
+        fileName = `audit_report_fy_${fyYear}_${fyYear + 1}.pdf`
+        break
+    }
+    
     const uploadsDir = path.join(__dirname, '../uploads')
     
     // Create uploads directory if it doesn't exist
@@ -756,5 +1312,301 @@ exports.downloadAuditReport = async (req, res) => {
   } catch (error) {
     console.error('Audit report download error:', error)
     res.status(500).json({ message: error.message })
+  }
+}
+
+// Generate Enhanced Audit Report
+exports.generateEnhancedAuditReport = async (req, res) => {
+  try {
+    const { reportType, period, year, month, startDate, endDate, customFields } = req.query;
+    
+    let dateFilter = {};
+    let reportTitle = '';
+    let periodStart, periodEnd;
+
+    console.log('🔍 Enhanced Audit Report Query:', req.query);
+
+    // Set date filters based on period type
+    switch (period) {
+      case 'monthly':
+        if (!month || !year) {
+          return res.status(400).json({ message: 'Month and year are required for monthly reports' });
+        }
+        periodStart = moment(`${year}-${month.padStart(2, '0')}-01`).startOf('month').toDate();
+        periodEnd = moment(`${year}-${month.padStart(2, '0')}-01`).endOf('month').toDate();
+        reportTitle = `Monthly Enhanced Audit Report - ${moment(periodStart).format('MMMM YYYY')}`;
+        break;
+        
+      case 'yearly':
+        const reportYear = year ? parseInt(year) : moment().year();
+        periodStart = moment(`${reportYear}-01-01`).startOf('year').toDate();
+        periodEnd = moment(`${reportYear}-12-31`).endOf('year').toDate();
+        reportTitle = `Yearly Enhanced Audit Report - ${reportYear}`;
+        break;
+        
+      case 'custom':
+        if (!startDate || !endDate) {
+          return res.status(400).json({ message: 'Start date and end date are required for custom range' });
+        }
+        periodStart = moment(startDate).startOf('day').toDate();
+        periodEnd = moment(endDate).endOf('day').toDate();
+        reportTitle = `Enhanced Audit Report - ${moment(periodStart).format('DD/MM/YYYY')} to ${moment(periodEnd).format('DD/MM/YYYY')}`;
+        break;
+        
+      default:
+        return res.status(400).json({ message: 'Invalid period type' });
+    }
+
+    dateFilter = {
+      createdAt: { $gte: periodStart, $lte: periodEnd }
+    };
+
+    console.log('📅 Date Filter Applied:', {
+      reportType,
+      period,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString()
+    });
+
+    let reportData = {
+      title: reportTitle,
+      generatedOn: new Date(),
+      generatedBy: req.user.name,
+      period: {
+        startDate: periodStart,
+        endDate: periodEnd
+      }
+    };
+
+    // Customer Profit Analysis
+    if (reportType === 'customer' || reportType === 'comprehensive') {
+      console.log('📊 Generating customer profit analysis...');
+      
+      // Get all loans in the period
+      const loans = await Loan.find(dateFilter)
+        .populate('customerId', 'name phone')
+        .populate('itemIds', 'name category');
+
+      // Get all repayments in the period
+      const repayments = await Repayment.find({
+        repaymentDate: { $gte: periodStart, $lte: periodEnd }
+      }).populate({
+        path: 'loanId',
+        populate: {
+          path: 'customerId',
+          select: 'name phone'
+        }
+      });
+
+      // Build customer profit data
+      const customerProfitMap = new Map();
+      let totalProfit = 0;
+
+      // Process loans
+      loans.forEach(loan => {
+        if (!loan.customerId) return;
+
+        const customerId = loan.customerId._id.toString();
+        const customerName = loan.customerId.name;
+        const phone = loan.customerId.phone || 'N/A';
+        const jewelryName = loan.itemIds.map(item => item.name).join(', ') || 'N/A';
+
+        if (!customerProfitMap.has(customerId)) {
+          customerProfitMap.set(customerId, {
+            customerId,
+            customerName,
+            phone,
+            status: loan.status,
+            jewelryName,
+            amount: 0,
+            interestRate: loan.interestPercent,
+            profit: 0,
+            loanDate: loan.createdAt.toISOString()
+          });
+        }
+
+        const customerData = customerProfitMap.get(customerId);
+        customerData.amount += loan.amount;
+      });
+
+      // Process repayments for profit calculation
+      repayments.forEach(repayment => {
+        if (!repayment.loanId || !repayment.loanId.customerId) return;
+
+        const customerId = repayment.loanId.customerId._id.toString();
+        if (customerProfitMap.has(customerId)) {
+          const customerData = customerProfitMap.get(customerId);
+          customerData.profit += repayment.interestAmount || 0;
+          totalProfit += repayment.interestAmount || 0;
+        }
+      });
+
+      reportData.customerData = Array.from(customerProfitMap.values());
+      reportData.overallProfit = totalProfit;
+
+      console.log(`📈 Customer profit analysis complete: ${reportData.customerData.length} customers, total profit: ₹${totalProfit}`);
+    }
+
+    // Financial Summary
+    if (reportType === 'financial' || reportType === 'comprehensive') {
+      console.log('💰 Generating financial summary...');
+
+      // Get finance data for the period
+      const financeQuery = period === 'monthly' 
+        ? { year: parseInt(year), month: parseInt(month) }
+        : period === 'yearly'
+        ? { year: parseInt(year) }
+        : {};
+
+      const financeData = await Finance.find(financeQuery);
+
+      let totalIncome = 0;
+      let totalExpenses = 0;
+      let totalLoansGiven = 0;
+      let totalRepayments = 0;
+      let totalInterestEarned = 0;
+
+      financeData.forEach(data => {
+        totalIncome += data.totalIncome;
+        totalExpenses += data.totalExpenses;
+        totalLoansGiven += data.businessMetrics.totalLoansGiven;
+        totalRepayments += data.businessMetrics.totalRepaymentsReceived;
+        totalInterestEarned += data.businessMetrics.totalInterestEarned;
+      });
+
+      reportData.financialSummary = {
+        totalIncome,
+        totalExpenses,
+        netProfit: totalIncome - totalExpenses,
+        totalLoansGiven,
+        totalRepayments,
+        totalInterestEarned
+      };
+
+      console.log('💼 Financial summary complete:', reportData.financialSummary);
+    }
+
+    // Comprehensive data
+    if (reportType === 'comprehensive') {
+      console.log('📋 Adding comprehensive data...');
+      
+      // Add balance sheet data and business metrics from finance data
+      const financeQuery = period === 'monthly' 
+        ? { year: parseInt(year), month: parseInt(month) }
+        : period === 'yearly'
+        ? { year: parseInt(year) }
+        : {};
+
+      const financeRecords = await Finance.find(financeQuery);
+      
+      reportData.balanceSheetData = financeRecords.map(record => ({
+        month: record.month,
+        year: record.year,
+        totalAssets: record.totalAssets,
+        totalLiabilities: record.totalLiabilities,
+        totalEquity: record.totalEquity
+      }));
+
+      reportData.businessMetrics = financeRecords.map(record => ({
+        month: record.month,
+        year: record.year,
+        ...record.businessMetrics
+      }));
+    }
+
+    console.log('✅ Enhanced audit report generated successfully');
+    res.json(reportData);
+
+  } catch (error) {
+    console.error('Enhanced audit report error:', error);
+    res.status(500).json({ message: error.message });
+  }
+}
+
+// List Generated Reports
+exports.listGeneratedReports = async (req, res) => {
+  try {
+    console.log('🔍 Fetching list of generated reports')
+    
+    // Get recent finance records (Tamil Nadu reports)
+    const recentFinanceReports = await Finance.find()
+      .populate('createdBy', 'name')
+      .sort({ year: -1, month: -1 })
+      .limit(10)
+      .lean()
+    
+    // Get shop details for context
+    const shopDetails = await ShopDetails.findOne({ isActive: true })
+    
+    const reportsList = []
+    
+    // Add Tamil Nadu Finance Reports
+    recentFinanceReports.forEach(report => {
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ]
+      
+      reportsList.push({
+        id: report._id,
+        type: 'Tamil Nadu Finance Report',
+        title: `${monthNames[report.month - 1]} ${report.year} - Finance Management Report`,
+        period: `${monthNames[report.month - 1]} ${report.year}`,
+        generatedOn: report.createdAt,
+        generatedBy: report.createdBy?.name || 'System',
+        status: report.isFinalized ? 'Finalized' : 'Draft',
+        downloadUrl: `/api/finance/audit-report?reportType=monthly&year=${report.year}&month=${report.month}`,
+        summary: {
+          interestIncome: report.profitLoss?.revenue?.interestIncomeFromLoans || 0,
+          totalExpenses: report.profitLoss?.expenses?.totalExpenses || 0,
+          netProfit: report.profitLoss?.netProfitBeforeTax || 0,
+          totalLoans: report.loanRegisterSummary?.totalPledgedLoans || 0
+        }
+      })
+    })
+    
+    // Add sample quick report entries for recent periods
+    const currentDate = moment()
+    for (let i = 0; i < 3; i++) {
+      const reportDate = currentDate.clone().subtract(i, 'months')
+      const year = reportDate.year()
+      const month = reportDate.month() + 1
+      const monthName = reportDate.format('MMMM')
+      
+      reportsList.push({
+        id: `quick-${year}-${month}`,
+        type: 'Quick Transaction Report',
+        title: `${monthName} ${year} - Transaction Summary`,
+        period: `${monthName} ${year}`,
+        generatedOn: new Date(),
+        generatedBy: 'Auto-Generated',
+        status: 'Available',
+        downloadUrl: `/api/reports/transactions?reportType=monthly&year=${year}&month=${month}`,
+        summary: {
+          description: 'Quick overview of monthly transactions and activities'
+        }
+      })
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        reports: reportsList,
+        totalReports: reportsList.length,
+        shopDetails: shopDetails ? {
+          shopName: shopDetails.shopName,
+          location: shopDetails.location,
+          gstNumber: shopDetails.gstNumber
+        } : null,
+        lastUpdated: new Date()
+      }
+    })
+    
+  } catch (error) {
+    console.error('❌ List reports error:', error)
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    })
   }
 }

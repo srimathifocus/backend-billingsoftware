@@ -4,12 +4,14 @@ const Expense = require('../models/Expense')
 exports.getAllExpenses = async (req, res) => {
   try {
     const expenses = await Expense.find().sort({ year: -1, month: -1 })
+    console.log('📊 Fetching expenses:', expenses.length, 'records found')
     
     res.json({
       success: true,
       data: expenses
     })
   } catch (error) {
+    console.error('❌ Error fetching expenses:', error.message)
     res.status(500).json({ 
       success: false,
       message: error.message 
@@ -49,7 +51,7 @@ exports.getExpenseByMonthYear = async (req, res) => {
 // Create or update expense
 exports.createOrUpdateExpense = async (req, res) => {
   try {
-    const { month, year, salaries, rent, utilities, miscellaneous } = req.body
+    const { month, year, salaries, rent, utilities, miscellaneous, goldAppraiserCharges, accountingAuditFees } = req.body
 
     // Validate month and year
     if (!month || !year || month < 1 || month > 12 || year < 2020) {
@@ -67,6 +69,8 @@ exports.createOrUpdateExpense = async (req, res) => {
       expense.rent = rent !== undefined ? rent : expense.rent
       expense.utilities = utilities !== undefined ? utilities : expense.utilities
       expense.miscellaneous = miscellaneous !== undefined ? miscellaneous : expense.miscellaneous
+      expense.goldAppraiserCharges = goldAppraiserCharges !== undefined ? goldAppraiserCharges : expense.goldAppraiserCharges
+      expense.accountingAuditFees = accountingAuditFees !== undefined ? accountingAuditFees : expense.accountingAuditFees
       
       await expense.save()
     } else {
@@ -77,7 +81,9 @@ exports.createOrUpdateExpense = async (req, res) => {
         salaries: salaries || 0,
         rent: rent || 0,
         utilities: utilities || 0,
-        miscellaneous: miscellaneous || 0
+        miscellaneous: miscellaneous || 0,
+        goldAppraiserCharges: goldAppraiserCharges || 0,
+        accountingAuditFees: accountingAuditFees || 0
       })
       await expense.save()
     }
