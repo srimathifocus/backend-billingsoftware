@@ -3,6 +3,7 @@ const router = express.Router()
 const { protect } = require('../middleware/authMiddleware')
 const {
   getActiveLoans,
+  getActiveLoansForRepayment,
   getInactiveLoans,
   searchLoansByPhone,
   getLoanById,
@@ -11,6 +12,9 @@ const {
 
 // Get all active loans
 router.get('/active', protect, getActiveLoans)
+
+// Get active loans for repayment management
+router.get('/active-for-repayment', protect, getActiveLoansForRepayment)
 
 // Get all inactive loans
 router.get('/inactive', protect, getInactiveLoans)

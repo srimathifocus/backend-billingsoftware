@@ -68,6 +68,55 @@ exports.getActiveLoans = async (req, res) => {
   }
 }
 
+// Get active loans for repayment management with full details
+exports.getActiveLoansForRepayment = async (req, res) => {
+  try {
+    const loans = await Loan.find({ status: 'active' })
+      .populate('customerId', 'name phone address')
+      .populate('itemIds', 'name category weight estimatedValue carat')
+      .sort({ createdAt: -1 })
+    
+    const loansWithDetails = loans.map(loan => {
+      const interestData = calculateInterest(
+        loan.amount, 
+        loan.interestPercent, 
+        loan.loanDate
+      )
+      
+      return {
+        _id: loan._id,
+        loanId: loan.loanId,
+        amount: loan.amount,
+        interestPercent: loan.interestPercent,
+        validity: loan.validity,
+        loanDate: loan.loanDate,
+        status: loan.status,
+        customer: {
+          _id: loan.customerId._id,
+          name: loan.customerId.name,
+          phone: loan.customerId.phone,
+          address: loan.customerId.address
+        },
+        items: loan.itemIds.map(item => ({
+          name: item.name,
+          category: item.category,
+          weight: item.weight,
+          estimatedValue: item.estimatedValue,
+          carat: item.carat || '22K'
+        })),
+        interestAmount: interestData.interestAmount,
+        totalAmount: loan.amount + interestData.interestAmount,
+        daysPending: interestData.daysDifference
+      }
+    })
+    
+    res.json(loansWithDetails)
+  } catch (error) {
+    console.error('Error fetching active loans for repayment:', error)
+    res.status(500).json({ message: error.message })
+  }
+}
+
 // Get all repaid loans (previously called inactive)
 exports.getInactiveLoans = async (req, res) => {
   try {

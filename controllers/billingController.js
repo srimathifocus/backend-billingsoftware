@@ -176,6 +176,7 @@ exports.createBilling = async (req, res) => {
       message: 'Billing created successfully',
       data: {
         loanId: createdLoan.loanId,
+        loanObjectId: createdLoan._id, // Add the MongoDB ObjectId
         customerId: createdCustomer._id,
         billingRecord
       }

@@ -3,7 +3,12 @@ const User = require('../models/User')
 
 exports.protect = async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1]
+    // Check for token in Authorization header first, then in query parameters
+    let token = req.headers.authorization?.split(' ')[1]
+    if (!token) {
+      token = req.query.token
+    }
+    
     if (!token) {
       console.log('No token provided')
       return res.status(401).json({ message: 'No token' })

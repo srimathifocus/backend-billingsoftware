@@ -156,10 +156,19 @@ exports.getOverallStatistics = async (req, res) => {
       }
     ]);
     
+    // Get item statistics
+    const Item = require('../models/Item');
+    const totalItems = await Item.countDocuments();
+    const pledgedItems = await Item.countDocuments({ status: 'pledged' });
+    const availableItems = await Item.countDocuments({ status: 'available' });
+    
     res.status(200).json({
       totalTransactions: totalStats[0] || { totalAmount: 0, totalCount: 0 },
       typeBreakdown,
-      loanStats
+      loanStats,
+      totalItems,
+      pledgedItems,
+      availableItems
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -26,13 +26,29 @@ const balanceSheetRoutes = require('./routes/balanceSheetRoutes')
 const financeRoutes = require('./routes/financeRoutes')
 const app = express()
 
-// CORS configuration for production
+// CORS configuration for production and development
 const corsOptions = {
-  origin: [
-    'https://pawnbillingsoftwarefocus.netlify.app',
-    'http://localhost:3000', // Keep for local development
-    'http://localhost:5173', // Vite default port
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'https://pawnbillingsoftwarefocus.netlify.app',
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://localhost:1000',
+      'http://localhost:1001',
+    ];
+    
+    // Allow any localhost origin during development
+    const isLocalhost = origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:');
+    
+    if (allowedOrigins.includes(origin) || (process.env.NODE_ENV !== 'production' && isLocalhost)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

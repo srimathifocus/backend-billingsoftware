@@ -21,6 +21,7 @@ router.delete('/:id', deleteFinanceData);
 
 // Tamil Nadu Audit Report
 router.get('/audit-report', generateTamilNaduAuditReport);
+router.get('/audit-report/pdf', generateTamilNaduAuditReport); // PDF version uses same controller
 
 // Finalize finance data
 router.put('/:id/finalize', finalizeFinanceData);
