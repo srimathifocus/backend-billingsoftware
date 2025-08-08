@@ -5,16 +5,37 @@ const Customer = require("../models/Customer");
 exports.getTransactions = async (req, res) => {
   try {
     const { type, mode, startDate, endDate } = req.query;
+    console.log("🔍 Transaction filter request:", { type, mode, startDate, endDate });
+    
     const filter = {};
     
     if (type) filter.type = type;
     if (mode) filter.mode = mode;
     if (startDate && endDate) {
+      // Create proper date range - start of startDate to end of endDate
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0); // Start of day
+      
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // End of day
+      
       filter.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate),
+        $gte: start,
+        $lte: end,
       };
+    } else if (startDate) {
+      // Only start date provided
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      filter.date = { $gte: start };
+    } else if (endDate) {
+      // Only end date provided
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      filter.date = { $lte: end };
     }
+    
+    console.log("📊 Final filter object:", filter);
     
     const transactions = await Transaction.find(filter)
       .populate({
@@ -26,6 +47,9 @@ exports.getTransactions = async (req, res) => {
         }
       })
       .sort({ date: -1 });
+    
+    console.log("✅ Found transactions:", transactions.length);
+    console.log("📋 Sample transaction dates:", transactions.slice(0, 3).map(t => ({ id: t._id, date: t.date, type: t.type, mode: t.mode })));
     
     res.status(200).json(transactions);
   } catch (err) {
@@ -39,10 +63,27 @@ exports.getTransactionSummary = async (req, res) => {
     
     const matchStage = {};
     if (startDate && endDate) {
+      // Create proper date range - start of startDate to end of endDate
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0); // Start of day
+      
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // End of day
+      
       matchStage.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate),
+        $gte: start,
+        $lte: end,
       };
+    } else if (startDate) {
+      // Only start date provided
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      matchStage.date = { $gte: start };
+    } else if (endDate) {
+      // Only end date provided
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      matchStage.date = { $lte: end };
     }
     
     const summary = await Transaction.aggregate([
