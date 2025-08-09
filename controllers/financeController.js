@@ -541,6 +541,39 @@ exports.generateTamilNaduAuditReport = async (req, res) => {
       auditorObservations: financeData[0]?.auditorObservations || {}
     }
 
+    // Calculate loan register summary from period-specific loans
+    const activeLoansCount = loans.filter(loan => loan.status === 'active').length
+    const settledLoansCount = loans.filter(loan => loan.status === 'repaid').length
+    const forfeitedLoansCount = loans.filter(loan => loan.status === 'forfeited').length
+    
+    const totalLoanValue = loans.reduce((sum, loan) => sum + loan.amount, 0)
+    const totalPledgedLoans = loans.length
+    
+    // Calculate average interest rate from actual loans
+    const averageInterestRate = loans.length > 0 
+      ? Math.round(loans.reduce((sum, loan) => sum + (loan.interestPercent || 24), 0) / loans.length * 10) / 10
+      : 24
+
+    console.log('📊 Period-specific Loan Statistics:', {
+      totalPledgedLoans,
+      activeLoansCount,
+      settledLoansCount, 
+      forfeitedLoansCount,
+      totalLoanValue,
+      averageInterestRate,
+      loanRecords: loans.length
+    })
+    
+    // Update loan register summary with period-specific data
+    aggregatedData.loanRegisterSummary = {
+      totalPledgedLoans,
+      activeLoans: activeLoansCount,
+      settledLoans: settledLoansCount,
+      forfeitedLoans: forfeitedLoansCount,
+      totalLoanValue,
+      averageInterestRate: averageInterestRate
+    }
+
     // Aggregate finance data
     financeData.forEach(data => {
       // Sum up profit & loss revenue
@@ -552,13 +585,6 @@ exports.generateTamilNaduAuditReport = async (req, res) => {
       if (data.balanceSheet) {
         aggregatedData.balanceSheet = data.balanceSheet
       }
-      
-      // Sum up loan register summary
-      aggregatedData.loanRegisterSummary.totalPledgedLoans += data.loanRegisterSummary.totalPledgedLoans
-      aggregatedData.loanRegisterSummary.activeLoans = Math.max(aggregatedData.loanRegisterSummary.activeLoans, data.loanRegisterSummary.activeLoans)
-      aggregatedData.loanRegisterSummary.settledLoans = Math.max(aggregatedData.loanRegisterSummary.settledLoans, data.loanRegisterSummary.settledLoans)
-      aggregatedData.loanRegisterSummary.forfeitedLoans = Math.max(aggregatedData.loanRegisterSummary.forfeitedLoans, data.loanRegisterSummary.forfeitedLoans)
-      aggregatedData.loanRegisterSummary.totalLoanValue = Math.max(aggregatedData.loanRegisterSummary.totalLoanValue, data.loanRegisterSummary.totalLoanValue)
     })
 
     // Aggregate expense data from Expense model
@@ -622,7 +648,7 @@ exports.generateTamilNaduAuditReport = async (req, res) => {
       profitLoss: aggregatedData.profitLoss,
       balanceSheet: aggregatedData.balanceSheet,
       loanRegisterSummary: aggregatedData.loanRegisterSummary,
-      loanRegisterDetails: loanRegisterDetails.slice(0, 10), // Show first 10 for sample
+      loanRegisterDetails: loanRegisterDetails, // Show all period-specific loan records
       compliance: aggregatedData.compliance,
       auditorObservations: aggregatedData.auditorObservations,
       

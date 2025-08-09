@@ -150,7 +150,7 @@ const generateCompactInvoice = (data, filePath) => {
     doc.fillColor(colors.black)
        .fontSize(8)
        .font('Helvetica')
-       .text(`Amount: ₹${data.loanAmount.toLocaleString()}`, leftMargin, yPosition);
+       .text(`Amount: Rs.${data.loanAmount.toLocaleString()}`, leftMargin, yPosition);
     doc.text(`Interest: ${data.interestRate}%/month`, leftMargin + 250, yPosition);
     yPosition += 12;
 
@@ -160,7 +160,7 @@ const generateCompactInvoice = (data, filePath) => {
 
     if (data.type === 'repayment') {
       doc.text(`Days: ${data.daysDifference}`, leftMargin, yPosition);
-      doc.text(`Interest: ₹${data.interestAmount.toLocaleString()}`, leftMargin + 250, yPosition);
+      doc.text(`Interest: Rs.${data.interestAmount.toLocaleString()}`, leftMargin + 250, yPosition);
       yPosition += 12;
 
       // Highlight total paid amount - Compact
@@ -170,7 +170,7 @@ const generateCompactInvoice = (data, filePath) => {
       doc.fillColor(colors.white)
          .fontSize(9)
          .font('Helvetica-Bold')
-         .text(`TOTAL PAID: ₹${data.totalAmount.toLocaleString()}`, leftMargin, yPosition + 4, { 
+         .text(`TOTAL PAID: Rs.${data.totalAmount.toLocaleString()}`, leftMargin, yPosition + 4, { 
            width: contentWidth, 
            align: 'center' 
          });
@@ -194,7 +194,7 @@ const generateCompactInvoice = (data, filePath) => {
     let totalValue = 0;
     data.items.forEach((item, index) => {
       const itemText = `${index + 1}. ${item.name} - ${item.category} - ${item.carat} - ${item.weight}g`;
-      const valueText = `₹${item.estimatedValue.toLocaleString()}`;
+      const valueText = `Rs.${item.estimatedValue.toLocaleString()}`;
       
       doc.text(itemText, leftMargin, yPosition, { width: contentWidth - 80 });
       doc.text(valueText, leftMargin + contentWidth - 80, yPosition, { width: 80, align: 'right' });
@@ -210,7 +210,7 @@ const generateCompactInvoice = (data, filePath) => {
        .fontSize(8)
        .font('Helvetica-Bold')
        .text('Total Value:', leftMargin + 5, yPosition + 3);
-    doc.text(`₹${totalValue.toLocaleString()}`, leftMargin + contentWidth - 85, yPosition + 3, { 
+    doc.text(`Rs.${totalValue.toLocaleString()}`, leftMargin + contentWidth - 85, yPosition + 3, { 
       width: 80, 
       align: 'right' 
     });
@@ -229,8 +229,8 @@ const generateCompactInvoice = (data, filePath) => {
     doc.fillColor(colors.black)
        .fontSize(8)
        .font('Helvetica')
-       .text(`Cash: ₹${data.payment.cash.toLocaleString()}`, leftMargin, yPosition);
-    doc.text(`Online: ₹${data.payment.online.toLocaleString()}`, leftMargin + 250, yPosition);
+       .text(`Cash: Rs.${data.payment.cash.toLocaleString()}`, leftMargin, yPosition);
+    doc.text(`Online: Rs.${data.payment.online.toLocaleString()}`, leftMargin + 250, yPosition);
     yPosition += 12;
 
     const totalPayment = data.payment.cash + data.payment.online;
@@ -242,7 +242,7 @@ const generateCompactInvoice = (data, filePath) => {
     doc.fillColor(colors.white)
        .fontSize(9)
        .font('Helvetica-Bold')
-       .text(`TOTAL: ₹${totalPayment.toLocaleString()}`, leftMargin, yPosition + 3, { 
+       .text(`TOTAL: Rs.${totalPayment.toLocaleString()}`, leftMargin, yPosition + 3, { 
          width: contentWidth, 
          align: 'center' 
        });

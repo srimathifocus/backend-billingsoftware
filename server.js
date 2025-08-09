@@ -24,6 +24,7 @@ const shopDetailsRoutes = require('./routes/shopDetailsRoutes')
 const expenseRoutes = require('./routes/expenseRoutes')
 const balanceSheetRoutes = require('./routes/balanceSheetRoutes')
 const financeRoutes = require('./routes/financeRoutes')
+const logoRoutes = require('./routes/logoRoutes')
 const app = express()
 
 // CORS configuration for production and development
@@ -34,6 +35,7 @@ const corsOptions = {
     
     const allowedOrigins = [
       'https://pawnbillingsoftwarefocus.netlify.app',
+      'https://billingsoftware-frontend.netlify.app',
       'http://localhost:3000',
       'http://localhost:5173',
       'http://localhost:1000',
@@ -77,6 +79,7 @@ app.use('/api/shop-details', shopDetailsRoutes)
 app.use('/api/expenses', expenseRoutes)
 app.use('/api/balance-sheet', balanceSheetRoutes)
 app.use('/api/finance', financeRoutes)
+app.use('/api/logo', logoRoutes)
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

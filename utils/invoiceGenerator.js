@@ -146,14 +146,14 @@ const generateInvoice = async (data, filePath) => {
 
       doc.fillColor(colors.black)
          .fontSize(8) // --newww: Reduced from 9 to 8
-         .text(`Principal Amount: ₹${data.loanAmount.toLocaleString()}`, 35, financeBoxY + 5)
+         .text(`Principal Amount: Rs.${data.loanAmount.toLocaleString()}`, 35, financeBoxY + 5)
          .text(`Interest Rate: ${data.interestRate}% per month`, 280, financeBoxY + 5)
          .text(`Validity Period: ${data.validity} months`, 35, financeBoxY + 15)
 
       if (data.type === 'repayment') {
         doc.text(`Days Elapsed: ${data.daysDifference} days`, 280, financeBoxY + 15)
-           .text(`Interest Amount: ₹${data.interestAmount.toLocaleString()}`, 35, financeBoxY + 25)
-           .text(`Total Amount: ₹${data.totalAmount.toLocaleString()}`, 280, financeBoxY + 25)
+           .text(`Interest Amount: Rs.${data.interestAmount.toLocaleString()}`, 35, financeBoxY + 25)
+           .text(`Total Amount: Rs.${data.totalAmount.toLocaleString()}`, 280, financeBoxY + 25)
            
         // Highlight total amount - More Compact
         doc.rect(275, financeBoxY + 35, 110, 15) // --newww: Reduced size
@@ -162,7 +162,7 @@ const generateInvoice = async (data, filePath) => {
         doc.fillColor(colors.white)
            .font('Helvetica-Bold')
            .fontSize(7) // --newww: Reduced font size
-           .text(`TOTAL PAID: ₹${data.totalAmount.toLocaleString()}`, 280, financeBoxY + 40)
+           .text(`TOTAL PAID: Rs.${data.totalAmount.toLocaleString()}`, 280, financeBoxY + 40)
       }
 
       doc.y = financeBoxY + financeBoxHeight + 8 // --newww: Reduced spacing
@@ -177,9 +177,9 @@ const generateInvoice = async (data, filePath) => {
       doc.fillColor(colors.black)
          .fontSize(8) // --newww: Reduced from 9 to 8
          .font('Helvetica')
-         .text(`Cash: ₹${(data.payment.cash || 0).toLocaleString()}`, 35, paymentBoxY + 5)
-         .text(`Online: ₹${(data.payment.online || 0).toLocaleString()}`, 150, paymentBoxY + 5)
-         .text(`Total: ₹${((data.payment.cash || 0) + (data.payment.online || 0)).toLocaleString()}`, 280, paymentBoxY + 5)
+         .text(`Cash: Rs.${(data.payment.cash || 0).toLocaleString()}`, 35, paymentBoxY + 5)
+         .text(`Online: Rs.${(data.payment.online || 0).toLocaleString()}`, 150, paymentBoxY + 5)
+         .text(`Total: Rs.${((data.payment.cash || 0) + (data.payment.online || 0)).toLocaleString()}`, 280, paymentBoxY + 5)
 
       doc.y = paymentBoxY + 30 // --newww: Reduced spacing
 
@@ -187,7 +187,7 @@ const generateInvoice = async (data, filePath) => {
       drawSectionHeader(doc, 'PLEDGED ITEMS')
       
       const tableY = doc.y
-      const tableHeaders = ['S.No', 'Item Name', 'Category', 'Carat', 'Weight (g)', 'Value (₹)']
+      const tableHeaders = ['S.No', 'Item Name', 'Category', 'Carat', 'Weight (g)', 'Value (Rs.)']
       const colWidths = [25, 90, 60, 40, 60, 65] // --newww: Adjusted column widths
       const colStartX = [30, 55, 145, 205, 245, 305]
 
@@ -257,7 +257,7 @@ const generateInvoice = async (data, filePath) => {
          .fontSize(8) // --newww: Reduced from 9 to 8
          .font('Helvetica-Bold')
          .text('TOTAL ESTIMATED VALUE:', colStartX[2], currentY + 4)
-         .text(`₹${totalValue.toLocaleString()}`, colStartX[5], currentY + 4, { 
+         .text(`Rs.${totalValue.toLocaleString()}`, colStartX[5], currentY + 4, { 
            width: colWidths[5], 
            align: 'center' 
          })
