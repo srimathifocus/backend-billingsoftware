@@ -35,7 +35,6 @@ const corsOptions = {
     
     const allowedOrigins = [
       'https://pawnbillingsoftwarefocus.netlify.app',
-      'https://billingsoftware-frontend.netlify.app',
       'http://localhost:3000',
       'http://localhost:5173',
       'http://localhost:1000',
